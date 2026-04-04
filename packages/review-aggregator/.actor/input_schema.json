@@ -22,6 +22,7 @@
     "searchQuery": {
       "title": "Search Query",
       "type": "string",
+      "editor": "textfield",
       "description": "Search marketplace results and scrape reviews for the top discovered products."
     },
     "platforms": {

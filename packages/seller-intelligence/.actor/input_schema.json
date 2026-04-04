@@ -36,11 +36,13 @@
     "searchBySeller": {
       "title": "Search by Seller",
       "type": "string",
+      "editor": "textfield",
       "description": "Seller/store name to look up across the selected marketplaces."
     },
     "searchByCategory": {
       "title": "Search by Category",
       "type": "string",
+      "editor": "textfield",
       "description": "Category keyword used to discover top sellers through marketplace search pages."
     },
     "maxSellers": {
