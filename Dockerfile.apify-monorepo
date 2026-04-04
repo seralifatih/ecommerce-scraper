@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+
+FROM apify/actor-node-playwright-chrome:24
+
+ARG ACTOR_PATH_IN_DOCKER_CONTEXT
+ENV ACTOR_PATH_IN_DOCKER_CONTEXT=${ACTOR_PATH_IN_DOCKER_CONTEXT}
+
+WORKDIR /app
+
+COPY --chown=myuser:myuser . ./
+
+RUN test -n "$ACTOR_PATH_IN_DOCKER_CONTEXT" \
+    && npm set progress=false \
+    && npm ci --include=dev --no-audit --no-fund \
+    && npx playwright install chromium \
+    && node ./scripts/build-selected-actor.mjs
+
+CMD ["node", "./scripts/run-selected-actor.mjs"]

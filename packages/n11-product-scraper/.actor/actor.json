@@ -1,0 +1,18 @@
+{
+  "$schema": "https://apify.com/schemas/v1/actor.ide.json",
+  "actorSpecification": 1,
+  "name": "n11-product-scraper",
+  "title": "N11 Product Scraper - Turkey Marketplace Product Data Extractor",
+  "description": "Scrape N11 search, category, and product pages into structured Turkish e-commerce product data with seller, price, and catalog fields.",
+  "version": "1.0",
+  "meta": {
+    "templateId": "ts-crawlee-playwright-chrome",
+    "generatedBy": "codex"
+  },
+  "buildTag": "latest",
+  "dockerfile": "../../../Dockerfile.apify-monorepo",
+  "dockerContextDir": "../../..",
+  "input": "./input_schema.json",
+  "readme": "../README.md",
+  "changelog": "../CHANGELOG.md"
+}

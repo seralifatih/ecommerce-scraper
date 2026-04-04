@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/seller-intelligence",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node ./dist/main.js",
+    "test:checklist": "npm run build && node ./dist/test-checklist.js"
+  },
+  "dependencies": {
+    "@workspace/shared": "0.0.1",
+    "apify": "^3.7.0",
+    "cheerio": "^1.2.0",
+    "crawlee": "^3.16.0",
+    "playwright": "^1.59.1",
+    "zod": "^4.3.6"
+  }
+}

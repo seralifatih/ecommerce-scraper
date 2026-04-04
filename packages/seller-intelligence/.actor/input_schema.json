@@ -1,0 +1,105 @@
+{
+  "$schema": "https://apify.com/schemas/v1/input.ide.json",
+  "title": "Seller Intelligence Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "description": "Scrape seller/store profiles across Trendyol, Hepsiburada, and N11.",
+  "properties": {
+    "platforms": {
+      "title": "Platforms",
+      "type": "array",
+      "description": "Marketplaces to include in this run.",
+      "editor": "select",
+      "default": [
+        "trendyol",
+        "hepsiburada",
+        "n11"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "trendyol",
+          "hepsiburada",
+          "n11"
+        ]
+      }
+    },
+    "sellerUrls": {
+      "title": "Seller URLs",
+      "type": "array",
+      "description": "Direct seller/store profile URLs to scrape.",
+      "editor": "stringList",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "searchBySeller": {
+      "title": "Search by Seller",
+      "type": "string",
+      "description": "Seller/store name to look up across the selected marketplaces."
+    },
+    "searchByCategory": {
+      "title": "Search by Category",
+      "type": "string",
+      "description": "Category keyword used to discover top sellers through marketplace search pages."
+    },
+    "maxSellers": {
+      "title": "Max Sellers",
+      "type": "integer",
+      "description": "Maximum number of seller profiles to emit into the dataset.",
+      "default": 50,
+      "minimum": 1
+    },
+    "proxyConfig": {
+      "title": "Proxy Configuration",
+      "type": "object",
+      "description": "Apify proxy configuration. Residential proxies with Turkish IP preference are used by default.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": [
+          "RESIDENTIAL"
+        ],
+        "apifyProxyCountry": "TR"
+      },
+      "properties": {
+        "useApifyProxy": {
+          "type": "boolean"
+        },
+        "apifyProxyGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "apifyProxyCountry": {
+          "type": "string"
+        },
+        "proxyUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "sellerUrls"
+      ]
+    },
+    {
+      "required": [
+        "searchBySeller"
+      ]
+    },
+    {
+      "required": [
+        "searchByCategory"
+      ]
+    }
+  ]
+}

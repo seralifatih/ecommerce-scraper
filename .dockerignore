@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.claude
+.claude-plugin
+.codex
+.codex-plugin
+node_modules
+storage
+apify_storage
+coverage
+*.log
+**/dist
+**/.tsbuildinfo

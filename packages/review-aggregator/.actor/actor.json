@@ -1,0 +1,18 @@
+{
+  "$schema": "https://apify.com/schemas/v1/actor.ide.json",
+  "actorSpecification": 1,
+  "name": "review-aggregator",
+  "title": "Turkish E-Commerce Review Aggregator - Trendyol, Hepsiburada, N11 Reviews",
+  "description": "Extract Turkish marketplace product reviews from Trendyol, Hepsiburada, and N11 into one normalized schema with built-in sentiment tagging.",
+  "version": "1.0",
+  "meta": {
+    "templateId": "ts-crawlee-playwright-chrome",
+    "generatedBy": "codex"
+  },
+  "buildTag": "latest",
+  "dockerfile": "../../../Dockerfile.apify-monorepo",
+  "dockerContextDir": "../../..",
+  "input": "./input_schema.json",
+  "readme": "../README.md",
+  "changelog": "../CHANGELOG.md"
+}

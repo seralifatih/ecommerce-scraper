@@ -1,0 +1,135 @@
+{
+  "$schema": "https://apify.com/schemas/v1/input.ide.json",
+  "title": "Turkish Review Aggregator Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "description": "Collect product reviews from Trendyol, Hepsiburada, and N11 into one normalized Turkish review dataset.",
+  "properties": {
+    "productUrls": {
+      "title": "Product URLs",
+      "type": "array",
+      "description": "Direct product page URLs from Trendyol, Hepsiburada, or N11.",
+      "editor": "stringList",
+      "prefill": [
+        "https://www.trendyol.com/spigen/ciel-by-cyrill-iphone-15-pro-kilif-cecile-flower-garden-acs06760-p-758714142",
+        "https://www.hepsiburada.com/spigen-20w-usb-c-mini-hizli-sarj-aleti-sarj-isisini-dusurur-gan-destekli-akim-korumali-guc-adaptoru-iphone-android-ipad-type-c-white-ach02071-p-HBCV000008SWTT",
+        "https://www.n11.com/urun/logitech-mk270-kablosuz-usb-turkce-q-klavye-mouse-seti-61465"
+      ],
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "searchQuery": {
+      "title": "Search Query",
+      "type": "string",
+      "description": "Search marketplace results and scrape reviews for the top discovered products."
+    },
+    "platforms": {
+      "title": "Platforms",
+      "type": "array",
+      "description": "Limit review aggregation to selected marketplaces.",
+      "editor": "select",
+      "default": [
+        "trendyol",
+        "hepsiburada",
+        "n11"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "trendyol",
+          "hepsiburada",
+          "n11"
+        ],
+        "enumTitles": [
+          "Trendyol",
+          "Hepsiburada",
+          "N11"
+        ]
+      }
+    },
+    "maxReviewsPerProduct": {
+      "title": "Max Reviews Per Product",
+      "type": "integer",
+      "description": "Maximum number of reviews to emit per product.",
+      "default": 100,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "minRating": {
+      "title": "Minimum Rating",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Only include reviews with a normalized rating greater than or equal to this value.",
+      "default": null,
+      "minimum": 1,
+      "maximum": 5
+    },
+    "sortBy": {
+      "title": "Sort Reviews By",
+      "type": "string",
+      "description": "Preferred ordering for emitted reviews.",
+      "default": "recent",
+      "enum": [
+        "recent",
+        "helpful",
+        "highest",
+        "lowest"
+      ],
+      "enumTitles": [
+        "Most Recent",
+        "Most Helpful",
+        "Highest Rating",
+        "Lowest Rating"
+      ]
+    },
+    "proxyConfig": {
+      "title": "Proxy Configuration",
+      "type": "object",
+      "description": "Apify proxy configuration. Residential Turkish proxies are recommended for production runs.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": [
+          "RESIDENTIAL"
+        ],
+        "apifyProxyCountry": "TR"
+      },
+      "properties": {
+        "useApifyProxy": {
+          "type": "boolean"
+        },
+        "apifyProxyGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "apifyProxyCountry": {
+          "type": "string"
+        },
+        "proxyUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "productUrls"
+      ]
+    },
+    {
+      "required": [
+        "searchQuery"
+      ]
+    }
+  ]
+}

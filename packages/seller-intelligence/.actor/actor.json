@@ -1,0 +1,18 @@
+{
+  "$schema": "https://apify.com/schemas/v1/actor.ide.json",
+  "actorSpecification": 1,
+  "name": "seller-intelligence",
+  "title": "Turkish Marketplace Seller Intelligence - Trendyol, Hepsiburada, N11",
+  "description": "Scrape normalized Turkish marketplace seller profiles across Trendyol, Hepsiburada, and N11 for sourcing, monitoring, and competitor intelligence.",
+  "version": "1.0",
+  "meta": {
+    "templateId": "ts-crawlee-cheerio",
+    "generatedBy": "codex"
+  },
+  "buildTag": "latest",
+  "dockerfile": "../../../Dockerfile.apify-monorepo",
+  "dockerContextDir": "../../..",
+  "input": "./input_schema.json",
+  "readme": "../README.md",
+  "changelog": "../CHANGELOG.md"
+}
