@@ -13,6 +13,7 @@
   "dockerfile": "../../../Dockerfile.apify-monorepo",
   "dockerContextDir": "../../..",
   "input": "./input_schema.json",
+  "output": "./output_schema.json",
   "readme": "../README.md",
   "changelog": "../CHANGELOG.md"
 }

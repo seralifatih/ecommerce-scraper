@@ -1,0 +1,13 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Output schema of Turkish E-Commerce Review Aggregator",
+  "description": "The actor stores normalized review records in the default dataset. The dataset also includes a final RUN_SUMMARY record with totals, duration, and error counts.",
+  "properties": {
+    "results": {
+      "type": "string",
+      "title": "Review results",
+      "description": "Unified product review records with sentiment tags for Trendyol, Hepsiburada, and N11, followed by a RUN_SUMMARY dataset item.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}

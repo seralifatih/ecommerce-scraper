@@ -1,0 +1,13 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "Output schema of N11 Product Scraper",
+  "description": "The actor stores extracted N11 product records in the default dataset. The dataset also includes a final RUN_SUMMARY record with totals, duration, and error counts.",
+  "properties": {
+    "results": {
+      "type": "string",
+      "title": "Product results",
+      "description": "Structured N11 product records from search, category, and detail pages, followed by a RUN_SUMMARY dataset item.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}
