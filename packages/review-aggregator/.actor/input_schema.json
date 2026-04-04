@@ -16,8 +16,7 @@
         "https://www.n11.com/urun/logitech-mk270-kablosuz-usb-turkce-q-klavye-mouse-seti-61465"
       ],
       "items": {
-        "type": "string",
-        "format": "uri"
+        "type": "string"
       }
     },
     "searchQuery": {
@@ -41,11 +40,6 @@
           "trendyol",
           "hepsiburada",
           "n11"
-        ],
-        "enumTitles": [
-          "Trendyol",
-          "Hepsiburada",
-          "N11"
         ]
       }
     },
@@ -59,10 +53,8 @@
     },
     "minRating": {
       "title": "Minimum Rating",
-      "type": [
-        "integer",
-        "null"
-      ],
+      "type": "integer",
+      "nullable": true,
       "description": "Only include reviews with a normalized rating greater than or equal to this value.",
       "default": null,
       "minimum": 1,
@@ -71,6 +63,7 @@
     "sortBy": {
       "title": "Sort Reviews By",
       "type": "string",
+      "editor": "select",
       "description": "Preferred ordering for emitted reviews.",
       "default": "recent",
       "enum": [
@@ -97,26 +90,6 @@
           "RESIDENTIAL"
         ],
         "apifyProxyCountry": "TR"
-      },
-      "properties": {
-        "useApifyProxy": {
-          "type": "boolean"
-        },
-        "apifyProxyGroups": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "apifyProxyCountry": {
-          "type": "string"
-        },
-        "proxyUrls": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
       }
     }
   }

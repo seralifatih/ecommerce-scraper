@@ -30,8 +30,7 @@
       "description": "Direct seller/store profile URLs to scrape.",
       "editor": "stringList",
       "items": {
-        "type": "string",
-        "format": "uri"
+        "type": "string"
       }
     },
     "searchBySeller": {
@@ -62,26 +61,6 @@
           "RESIDENTIAL"
         ],
         "apifyProxyCountry": "TR"
-      },
-      "properties": {
-        "useApifyProxy": {
-          "type": "boolean"
-        },
-        "apifyProxyGroups": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "apifyProxyCountry": {
-          "type": "string"
-        },
-        "proxyUrls": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
       }
     }
   }

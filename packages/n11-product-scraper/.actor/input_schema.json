@@ -20,8 +20,7 @@
       "description": "N11 category or listing URLs to crawl.",
       "editor": "stringList",
       "items": {
-        "type": "string",
-        "format": "uri"
+        "type": "string"
       }
     },
     "productUrls": {
@@ -30,8 +29,7 @@
       "description": "Direct N11 product URLs to scrape.",
       "editor": "stringList",
       "items": {
-        "type": "string",
-        "format": "uri"
+        "type": "string"
       }
     },
     "maxProducts": {
@@ -56,27 +54,8 @@
         "useApifyProxy": true,
         "apifyProxyGroups": [
           "RESIDENTIAL"
-        ]
-      },
-      "properties": {
-        "useApifyProxy": {
-          "type": "boolean"
-        },
-        "apifyProxyGroups": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "apifyProxyCountry": {
-          "type": "string"
-        },
-        "proxyUrls": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+        ],
+        "apifyProxyCountry": "TR"
       }
     }
   }
