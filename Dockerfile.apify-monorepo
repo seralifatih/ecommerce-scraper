@@ -15,7 +15,6 @@ USER myuser
 RUN test -n "$ACTOR_PATH_IN_DOCKER_CONTEXT" \
     && npm set progress=false \
     && npm ci --include=dev --no-audit --no-fund \
-    && npx playwright install chromium \
     && node ./scripts/build-selected-actor.mjs
 
 CMD ["node", "./scripts/run-selected-actor.mjs"]
