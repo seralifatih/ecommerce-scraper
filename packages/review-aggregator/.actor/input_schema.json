@@ -119,17 +119,5 @@
         }
       }
     }
-  },
-  "anyOf": [
-    {
-      "required": [
-        "productUrls"
-      ]
-    },
-    {
-      "required": [
-        "searchQuery"
-      ]
-    }
-  ]
+  }
 }

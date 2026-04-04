@@ -79,22 +79,5 @@
         }
       }
     }
-  },
-  "anyOf": [
-    {
-      "required": [
-        "searchQueries"
-      ]
-    },
-    {
-      "required": [
-        "categoryUrls"
-      ]
-    },
-    {
-      "required": [
-        "productUrls"
-      ]
-    }
-  ]
+  }
 }

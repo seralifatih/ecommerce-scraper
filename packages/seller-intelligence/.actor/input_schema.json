@@ -84,22 +84,5 @@
         }
       }
     }
-  },
-  "anyOf": [
-    {
-      "required": [
-        "sellerUrls"
-      ]
-    },
-    {
-      "required": [
-        "searchBySeller"
-      ]
-    },
-    {
-      "required": [
-        "searchByCategory"
-      ]
-    }
-  ]
+  }
 }
