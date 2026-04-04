@@ -5,10 +5,13 @@ FROM apify/actor-node-playwright-chrome:24
 ARG ACTOR_PATH_IN_DOCKER_CONTEXT
 ENV ACTOR_PATH_IN_DOCKER_CONTEXT=${ACTOR_PATH_IN_DOCKER_CONTEXT}
 
+USER root
 WORKDIR /app
+RUN mkdir -p /app && chown -R myuser:myuser /app
 
 COPY --chown=myuser:myuser . ./
 
+USER myuser
 RUN test -n "$ACTOR_PATH_IN_DOCKER_CONTEXT" \
     && npm set progress=false \
     && npm ci --include=dev --no-audit --no-fund \
