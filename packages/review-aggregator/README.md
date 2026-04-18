@@ -93,6 +93,95 @@ The actor uses Turkish positive and negative keyword matching first, then falls 
 
 The actor retries when appropriate, logs the failure, and continues processing the rest of the run.
 
+## 🇹🇷 Turkish Data Intelligence Portfolio
+
+This actor is part of a suite of 9 specialized Turkish market data tools:
+
+**E-Commerce Intelligence:**
+- N11 Product Scraper — Turkey's third-largest marketplace
+- Turkish Marketplace Seller Intelligence — Trendyol, Hepsiburada, N11 seller profiles
+- Turkish E-Commerce Review Aggregator — Cross-platform reviews with sentiment analysis
+
+**Automotive Intelligence:**
+- Arabam.com Vehicle Scraper — Used car listings with paint condition data
+- Turkish Auto Price Tracker — Cross-platform vehicle valuation
+- Turkish Auto Dealer Intelligence — Galeri profiles and inventory analytics
+
+**Real Estate Intelligence:**
+- Emlakjet Property Scraper — Zero-competition property data
+- Turkish Property Valuation Engine — Cross-platform pricing with rental yield analysis
+- Turkish Real Estate Agency Scraper — Emlak ofisi profiles and portfolios
+
+All actors share consistent output schemas, Turkish language support, and transparent 
+pay-per-event pricing. Built and maintained by [your username].
+
+
+This actor is part of a suite of 9 specialized Turkish market data tools:
+
+**E-Commerce Intelligence:**
+- N11 Product Scraper ? Turkey's third-largest marketplace
+- Turkish Marketplace Seller Intelligence ? Trendyol, Hepsiburada, N11 seller profiles
+- Turkish E-Commerce Review Aggregator ? Cross-platform reviews with sentiment analysis
+
+**Automotive Intelligence:**
+- Arabam.com Vehicle Scraper ? Used car listings with paint condition data
+- Turkish Auto Price Tracker ? Cross-platform vehicle valuation
+- Turkish Auto Dealer Intelligence ? Galeri profiles and inventory analytics
+
+**Real Estate Intelligence:**
+- Emlakjet Property Scraper ? Zero-competition property data
+- Turkish Property Valuation Engine ? Cross-platform pricing with rental yield analysis
+- Turkish Real Estate Agency Scraper ? Emlak ofisi profiles and portfolios
+
+All actors share consistent output schemas, Turkish language support, and transparent 
+pay-per-event pricing. Built and maintained by [your username].
+
+This actor is part of a suite of 9 specialized Turkish market data tools:
+
+**E-Commerce Intelligence:**
+- N11 Product Scraper ? Turkey's third-largest marketplace
+- Turkish Marketplace Seller Intelligence ? Trendyol, Hepsiburada, N11 seller profiles
+- Turkish E-Commerce Review Aggregator ? Cross-platform reviews with sentiment analysis
+
+**Automotive Intelligence:**
+- Arabam.com Vehicle Scraper ? Used car listings with paint condition data
+- Turkish Auto Price Tracker ? Cross-platform vehicle valuation
+- Turkish Auto Dealer Intelligence ? Galeri profiles and inventory analytics
+
+**Real Estate Intelligence:**
+- Emlakjet Property Scraper ? Zero-competition property data
+- Turkish Property Valuation Engine ? Cross-platform pricing with rental yield analysis
+- Turkish Real Estate Agency Scraper ? Emlak ofisi profiles and portfolios
+
+All actors share consistent output schemas, Turkish language support, and transparent 
+pay-per-event pricing. Built and maintained by [your username].
+Zero-competition property data
+- Turkish Property Valuation Engine ? Cross-platform pricing with rental yield analysis
+- Turkish Real Estate Agency Scraper ? Emlak ofisi profiles and portfolios
+
+All actors share consistent output schemas, Turkish language support, and transparent 
+pay-per-event pricing. Built and maintained by [your username].
+
+This actor is part of a suite of 9 specialized Turkish market data tools:
+
+**E-Commerce Intelligence:**
+- N11 Product Scraper ? Turkey's third-largest marketplace
+- Turkish Marketplace Seller Intelligence ? Trendyol, Hepsiburada, N11 seller profiles
+- Turkish E-Commerce Review Aggregator ? Cross-platform reviews with sentiment analysis
+
+**Automotive Intelligence:**
+- Arabam.com Vehicle Scraper ? Used car listings with paint condition data
+- Turkish Auto Price Tracker ? Cross-platform vehicle valuation
+- Turkish Auto Dealer Intelligence ? Galeri profiles and inventory analytics
+
+**Real Estate Intelligence:**
+- Emlakjet Property Scraper ? Zero-competition property data
+- Turkish Property Valuation Engine ? Cross-platform pricing with rental yield analysis
+- Turkish Real Estate Agency Scraper ? Emlak ofisi profiles and portfolios
+
+All actors share consistent output schemas, Turkish language support, and transparent 
+pay-per-event pricing. Built and maintained by [your username].
+
 ## Changelog
 
 ### v1.0.0

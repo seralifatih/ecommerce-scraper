@@ -37,7 +37,8 @@
       "title": "Search by Seller",
       "type": "string",
       "editor": "textfield",
-      "description": "Seller/store name to look up across the selected marketplaces."
+      "description": "Seller/store name to look up across the selected marketplaces.",
+      "default": "Samsung"
     },
     "searchByCategory": {
       "title": "Search by Category",

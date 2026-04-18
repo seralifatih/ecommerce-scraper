@@ -22,7 +22,7 @@ function buildStartRequests(input: ActorInput) {
     label: RequestLabel;
   }> = [];
 
-  for (const searchQuery of input.searchQueries ?? []) {
+  for (const searchQuery of input.searchQueries) {
     const searchUrl = new URL('https://www.n11.com/arama');
     searchUrl.searchParams.set('q', searchQuery);
     requests.push({

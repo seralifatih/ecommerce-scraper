@@ -79,7 +79,7 @@ const n11ProductUrlSchema = z.string().url().refine(isN11ProductUrl, {
 export const actorInputSchema = z.object({
   searchQueries: z.array(nonEmptyStringSchema, {
     message: 'searchQueries must be an array of non-empty strings.',
-  }).optional(),
+  }).default(['laptop']),
   categoryUrls: z.array(n11ListingUrlSchema, {
     message: 'categoryUrls must be an array of valid N11 listing URLs.',
   }).optional(),
@@ -90,26 +90,6 @@ export const actorInputSchema = z.object({
   scrapeDetails: z.boolean().default(true),
   proxyConfig: proxyConfigSchema.optional(),
 }).superRefine((value, context) => {
-  const hasSearchQueries = (value.searchQueries?.length ?? 0) > 0;
-  const hasCategoryUrls = (value.categoryUrls?.length ?? 0) > 0;
-  const hasProductUrls = (value.productUrls?.length ?? 0) > 0;
-
-  if (!hasSearchQueries && !hasCategoryUrls && !hasProductUrls) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'At least one of searchQueries, categoryUrls, or productUrls must be provided.',
-      path: ['searchQueries'],
-    });
-  }
-
-  if (value.searchQueries && value.searchQueries.length === 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'searchQueries must contain at least one search term when provided.',
-      path: ['searchQueries'],
-    });
-  }
-
   if (value.categoryUrls && value.categoryUrls.length === 0) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

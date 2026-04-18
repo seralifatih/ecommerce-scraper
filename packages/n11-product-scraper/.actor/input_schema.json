@@ -10,6 +10,7 @@
       "type": "array",
       "description": "Search terms to run on n11.com. At least one input source is required.",
       "editor": "stringList",
+      "default": ["laptop"],
       "items": {
         "type": "string"
       }

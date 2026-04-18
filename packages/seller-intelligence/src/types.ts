@@ -84,7 +84,7 @@ export const actorInputSchema = z.object({
   sellerUrls: z.array(z.string().url().refine(isSupportedSellerUrl, {
     message: 'Seller URLs must belong to Trendyol, Hepsiburada, or N11 seller profile pages.',
   })).default([]),
-  searchBySeller: nonEmptyStringSchema.optional(),
+  searchBySeller: nonEmptyStringSchema.default('Samsung'),
   searchByCategory: nonEmptyStringSchema.optional(),
   maxSellers: positiveIntegerField('maxSellers', 50, 500),
   proxyConfig: z.custom<ProxyInput>().optional().default({

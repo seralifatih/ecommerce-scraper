@@ -76,7 +76,11 @@ function positiveIntegerField(fieldName: string, defaultValue: number, maximum?:
 export const actorInputSchema = z.object({
   productUrls: z.array(z.string().url().refine(isSupportedProductUrl, {
     message: 'URL must belong to Trendyol, Hepsiburada, or n11.',
-  })).default([]),
+  })).default([
+    'https://www.trendyol.com/spigen/ciel-by-cyrill-iphone-15-pro-kilif-cecile-flower-garden-acs06760-p-758714142',
+    'https://www.hepsiburada.com/spigen-20w-usb-c-mini-hizli-sarj-aleti-sarj-isisini-dusurur-gan-destekli-akim-korumali-guc-adaptoru-iphone-android-ipad-type-c-white-ach02071-p-HBCV000008SWTT',
+    'https://www.n11.com/urun/logitech-mk270-kablosuz-usb-turkce-q-klavye-mouse-seti-61465',
+  ]),
   searchQuery: z.string().trim().min(1).optional(),
   platforms: z.array(platformSchema).default([...DEFAULT_PLATFORMS]),
   maxReviewsPerProduct: positiveIntegerField('maxReviewsPerProduct', 100, 1000),
