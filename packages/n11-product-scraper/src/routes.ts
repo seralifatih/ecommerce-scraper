@@ -92,6 +92,8 @@ async function handleListingPage(
   const requestQueue = context.requestQueue as {
     addRequests: (requests: Array<Record<string, unknown>>) => Promise<unknown>;
   };
+
+  await context.page.waitForSelector('a.product-item, .not-found-wrapper', { timeout: 15_000 }).catch(() => undefined);
   const html = await context.page.content();
   const $ = load(html);
   const parseResult = parseListingPage($, html, requestUrl);
@@ -153,6 +155,7 @@ async function handleDetailPage(
     return;
   }
 
+  await context.page.waitForSelector('h1.title, .not-found-wrapper', { timeout: 15_000 }).catch(() => undefined);
   const html = await context.page.content();
   const $ = load(html);
   const internalProductId = extractInternalProductIdFromDetailPage(html, listingCandidate);

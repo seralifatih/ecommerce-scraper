@@ -117,7 +117,7 @@ try {
     requestHandlerTimeoutSecs: 120,
     preNavigationHooks: [
       async ({ page }, gotoOptions) => {
-        gotoOptions.waitUntil = 'networkidle';
+        gotoOptions.waitUntil = 'domcontentloaded';
 
         await page.route('**/*', async (route) => {
           const resourceType = route.request().resourceType();

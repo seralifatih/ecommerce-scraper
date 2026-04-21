@@ -11,6 +11,7 @@
     "test:checklist": "npm run build && node ./dist/test-checklist.js"
   },
   "dependencies": {
+    "@crawlee/memory-storage": "^3.16.0",
     "@workspace/shared": "0.0.1",
     "apify": "^3.7.0",
     "cheerio": "^1.2.0",
