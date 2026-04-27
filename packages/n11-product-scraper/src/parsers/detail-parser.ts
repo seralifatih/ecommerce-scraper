@@ -25,6 +25,28 @@ function dedupeStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
+function isProductImageUrl(url: string): boolean {
+  if (url.startsWith('data:')) {
+    return false;
+  }
+
+  if (!/^https?:/i.test(url)) {
+    return false;
+  }
+
+  // N11 thumbnail/decoration sizes (badges, thumbnails, sponsored markers).
+  if (/\/a1\/(?:60_86|220_315|110_158)\//.test(url)) {
+    return false;
+  }
+
+  // N11 logo and watermark CDN paths.
+  if (/n11scdn\.akamaized\.net\/.*1197431073752174383\.png/.test(url)) {
+    return false;
+  }
+
+  return true;
+}
+
 function parseNullablePrice(text: string | null): N11Product['originalPrice'] {
   if (!text) {
     return null;
@@ -44,6 +66,84 @@ function computeDiscountPercentage(currentAmount: number, originalAmount: number
 
   const discount = ((originalAmount - currentAmount) / originalAmount) * 100;
   return Number.parseFloat(discount.toFixed(2));
+}
+
+interface InlineProductState {
+  brand: string | null;
+  sellerName: string | null;
+  sellerSlug: string | null;
+  imageUrls: string[];
+  rating: number | null;
+  reviewCount: number | null;
+}
+
+function parseInlineProductState(html: string): InlineProductState | null {
+  const marker = '<script>window.model = ';
+  const startIdx = html.indexOf(marker);
+
+  if (startIdx < 0) {
+    return null;
+  }
+
+  const jsonStart = startIdx + marker.length;
+  const endIdx = html.indexOf('</script>', jsonStart);
+
+  if (endIdx < 0) {
+    return null;
+  }
+
+  const raw = html.slice(jsonStart, endIdx).replace(/;\s*$/, '');
+  let state: any;
+
+  try {
+    state = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  const jsonLd = state?.jsonLDProduct ?? {};
+  const productMeta = state?.productMeta ?? {};
+  const seller = state?.product?.seller ?? {};
+  const images = Array.isArray(state?.product?.images) ? state.product.images : [];
+  const aggregateRating = jsonLd?.aggregateRating ?? {};
+
+  const brand = typeof jsonLd?.brand === 'string'
+    ? cleanText(jsonLd.brand)
+    : typeof productMeta?.brand === 'string'
+      ? cleanText(productMeta.brand)
+      : null;
+
+  const sellerName = typeof seller?.nickName === 'string' && seller.nickName.trim()
+    ? cleanText(seller.nickName)
+    : typeof seller?.businessName === 'string' && seller.businessName?.trim()
+      ? cleanText(seller.businessName)
+      : null;
+
+  const sellerSlug = typeof state?.response?.sellerShopBookmarkableUrl === 'string'
+    ? state.response.sellerShopBookmarkableUrl
+    : null;
+
+  const imageUrls: string[] = [];
+  for (const image of images) {
+    const path = typeof image?.path === 'string' ? image.path : null;
+    if (!path) continue;
+    // N11 image paths contain a {0} size placeholder — substitute with org for full size.
+    imageUrls.push(path.replace('{0}', 'org'));
+  }
+
+  const ratingValue = typeof aggregateRating?.ratingValue === 'number'
+    ? aggregateRating.ratingValue
+    : Number.parseFloat(aggregateRating?.ratingValue);
+  const reviewCountValue = Number.parseInt(aggregateRating?.reviewCount ?? aggregateRating?.ratingCount, 10);
+
+  return {
+    brand,
+    sellerName,
+    sellerSlug,
+    imageUrls,
+    rating: Number.isFinite(ratingValue) ? ratingValue : null,
+    reviewCount: Number.isFinite(reviewCountValue) ? reviewCountValue : null,
+  };
 }
 
 function parseJsonLdProduct($: CheerioAPI): {
@@ -200,6 +300,7 @@ export function buildProductFromDetailPage(options: {
   enrichment?: DetailEnrichment;
 }): N11Product {
   const { $, html, url, listingCandidate, enrichment } = options;
+  const inlineState = parseInlineProductState(html);
   const jsonLdProduct = parseJsonLdProduct($);
   const canonicalUrl = $('link[rel="canonical"]').attr('href');
   const productUrl = getAbsoluteUrl(canonicalUrl ?? undefined, url) ?? url;
@@ -212,8 +313,12 @@ export function buildProductFromDetailPage(options: {
   const currentPrice = parseTurkishPrice(currentPriceText);
   const originalPrice = parseNullablePrice(cleanText($('.oldPrice, .old-price').first().text()) || null);
   const sellerAnchor = $('a.sidebarSellerArea-top-name').first();
-  const sellerName = cleanText(sellerAnchor.text()) || listingCandidate?.sellerName || 'Unknown Seller';
-  const sellerUrl = getAbsoluteUrl(sellerAnchor.attr('href') ?? undefined, url);
+  const sellerName = inlineState?.sellerName
+    || cleanText(sellerAnchor.text())
+    || listingCandidate?.sellerName
+    || 'Unknown Seller';
+  const sellerUrl = (inlineState?.sellerSlug ? `https://www.n11.com/magaza/${inlineState.sellerSlug}` : null)
+    ?? getAbsoluteUrl(sellerAnchor.attr('href') ?? undefined, url);
   const breadcrumbPath = dedupeStrings(
     $('.breadcrumb a')
       .toArray()
@@ -225,18 +330,22 @@ export function buildProductFromDetailPage(options: {
     ...enrichment?.specifications,
     ...domSpecifications,
   };
-  const brand = specifications.Marka ?? jsonLdProduct.brand ?? null;
+  const brand = inlineState?.brand
+    || specifications.Marka
+    || jsonLdProduct.brand
+    || null;
   const imageUrls = dedupeStrings([
+    ...(inlineState?.imageUrls ?? []).map((imageUrl) => getAbsoluteUrl(imageUrl, url)),
     ...$('.swiper-slide img')
       .toArray()
       .map((image) => getAbsoluteUrl($(image).attr('src') ?? $(image).attr('data-src') ?? undefined, url)),
     ...jsonLdProduct.imageUrls.map((imageUrl) => getAbsoluteUrl(imageUrl, url)),
     listingCandidate?.imageUrl ? getAbsoluteUrl(listingCandidate.imageUrl, url) : null,
-  ]);
+  ]).filter(isProductImageUrl);
   const bodyText = cleanText($('body').text());
   const inStock = !/stokta yok|satista yok|tukendi|t\u00fckendi/i.test(bodyText);
-  const rating = listingCandidate?.rating ?? jsonLdProduct.rating ?? null;
-  const reviewCount = listingCandidate?.reviewCount ?? jsonLdProduct.reviewCount ?? null;
+  const rating = listingCandidate?.rating ?? inlineState?.rating ?? jsonLdProduct.rating ?? null;
+  const reviewCount = listingCandidate?.reviewCount ?? inlineState?.reviewCount ?? jsonLdProduct.reviewCount ?? null;
 
   return {
     scrapedAt: new Date().toISOString(),
