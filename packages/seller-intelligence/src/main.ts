@@ -1,10 +1,12 @@
 import { Actor } from 'apify';
 import { MemoryStorage } from '@crawlee/memory-storage';
+import { load } from 'cheerio';
 import { CheerioCrawler, log } from 'crawlee';
 import { ZodError } from 'zod';
 
 import {
   classifyError,
+  cleanText,
   ErrorType,
   getProxyConfig,
   getRetryDelay,
@@ -34,7 +36,7 @@ import {
   matchesSellerQuery,
   normalizeUrl,
 } from './utils.js';
-import { fetchJson } from './platforms/common.js';
+import { fetchJson, looksBlocked } from './platforms/common.js';
 
 interface TrendyolSellerSearchResponse {
   result?: {
@@ -86,6 +88,85 @@ interface DiscoveryRequest {
   url: string;
   uniqueKey: string;
   userData: DiscoveryRequestUserData;
+}
+
+function toPlaywrightProxy(proxyUrl: string): {
+  server: string;
+  username?: string;
+  password?: string;
+} {
+  const parsedUrl = new URL(proxyUrl);
+
+  return {
+    server: `${parsedUrl.protocol}//${parsedUrl.host}`,
+    username: parsedUrl.username || undefined,
+    password: parsedUrl.password || undefined,
+  };
+}
+
+async function createBrowserContext(proxyConfiguration?: Awaited<ReturnType<typeof getProxyConfig>>) {
+  const { chromium } = await import('playwright');
+  const proxyUrl = await proxyConfiguration?.newUrl('seller_intelligence');
+  const browser = await chromium.launch({
+    headless: process.env.APIFY_HEADLESS === '0' ? false : true,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--lang=tr-TR',
+    ],
+    proxy: proxyUrl ? toPlaywrightProxy(proxyUrl) : undefined,
+  });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    locale: 'tr-TR',
+    viewport: { width: 1440, height: 900 },
+    extraHTTPHeaders: {
+      'accept-language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    },
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+    });
+  });
+
+  return { browser, context };
+}
+
+async function loadDiscoveryPage(
+  url: string,
+  context: Awaited<ReturnType<typeof createBrowserContext>>['context'],
+): Promise<{
+  html: string;
+  text: string;
+  finalUrl: string;
+}> {
+  const page = await context.newPage();
+
+  try {
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 120_000,
+    });
+    await page.waitForTimeout(
+      url.includes('hepsiburada.com') ? 10_000 : url.includes('n11.com') ? 8_000 : 5_000,
+    );
+
+    const html = await page.content();
+    const text = cleanText(await page.locator('body').innerText().catch(() => ''));
+
+    if (looksBlocked(text, html)) {
+      throw new Error(`Blocked or challenge page detected for ${url}.`);
+    }
+
+    return {
+      html,
+      text,
+      finalUrl: page.url(),
+    };
+  } finally {
+    await page.close().catch(() => undefined);
+  }
 }
 
 const scraperByPlatform: Record<Platform, typeof scrapeTrendyolSeller> = {
@@ -256,6 +337,169 @@ function buildDiscoveryRequests(input: ActorInput, state: SellerCrawlerState): D
   return requests;
 }
 
+async function runDiscoveryRequests(options: {
+  requests: DiscoveryRequest[];
+  input: ActorInput;
+  state: SellerCrawlerState;
+  rateLimiter: RateLimiter;
+  browserContext: Awaited<ReturnType<typeof createBrowserContext>>['context'];
+}): Promise<void> {
+  const {
+    requests,
+    input,
+    state,
+    rateLimiter,
+    browserContext,
+  } = options;
+  const pendingRequests = [...requests];
+  const seenRequests = new Set<string>(pendingRequests.map((request) => request.uniqueKey));
+
+  while (pendingRequests.length > 0) {
+    const request = pendingRequests.shift();
+
+    if (!request) {
+      continue;
+    }
+
+    const { label, platform, query, mode } = request.userData;
+
+    try {
+      const hostname = new URL(request.url).hostname;
+      await rateLimiter.wait(hostname);
+
+      const document = await loadDiscoveryPage(request.url, browserContext);
+      const $ = load(document.html);
+      const currentUrl = document.finalUrl;
+
+      if (label === REQUEST_LABEL.TRENDYOL_SEARCH) {
+        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers * 2);
+
+        if (sellerLinks.length === 0) {
+          log.warning('No Trendyol seller links were discovered from the search page.', {
+            query,
+            mode,
+            url: currentUrl,
+          });
+        }
+
+        for (const sellerLink of sellerLinks) {
+          addSellerCandidate(state, input, sellerLink);
+        }
+
+        continue;
+      }
+
+      if (label === REQUEST_LABEL.HEPSIBURADA_DIRECTORY) {
+        $('a[href*="/magaza/"]').each((_: unknown, element: unknown) => {
+          const href = $(element as any).attr('href');
+          const absoluteUrl = href ? new URL(href, currentUrl).toString() : null;
+          const sellerText = $(element as any).text();
+
+          if (!absoluteUrl || !matchesSellerQuery(sellerText, query)) {
+            return;
+          }
+
+          addSellerCandidate(state, input, absoluteUrl);
+        });
+
+        continue;
+      }
+
+      if (label === REQUEST_LABEL.HEPSIBURADA_SEARCH) {
+        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers * 2);
+
+        for (const sellerLink of sellerLinks) {
+          addSellerCandidate(state, input, sellerLink);
+        }
+
+        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
+
+        for (const productLink of productLinks) {
+          if (!addDiscoveredProduct(state, productLink)) {
+            continue;
+          }
+
+          const nextRequest: DiscoveryRequest = {
+            url: productLink,
+            uniqueKey: `${REQUEST_LABEL.HEPSIBURADA_PRODUCT}:${productLink}`,
+            userData: {
+              label: REQUEST_LABEL.HEPSIBURADA_PRODUCT,
+              platform,
+              query,
+              mode,
+            },
+          };
+
+          if (!seenRequests.has(nextRequest.uniqueKey)) {
+            seenRequests.add(nextRequest.uniqueKey);
+            pendingRequests.push(nextRequest);
+          }
+        }
+
+        continue;
+      }
+
+      if (label === REQUEST_LABEL.HEPSIBURADA_PRODUCT) {
+        const sellerLinks = collectSellerLinks($, currentUrl, 'hepsiburada', 3);
+
+        for (const sellerLink of sellerLinks) {
+          addSellerCandidate(state, input, sellerLink);
+        }
+
+        continue;
+      }
+
+      if (label === REQUEST_LABEL.N11_SEARCH) {
+        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers);
+
+        for (const sellerLink of sellerLinks) {
+          addSellerCandidate(state, input, sellerLink);
+        }
+
+        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
+
+        for (const productLink of productLinks) {
+          if (!addDiscoveredProduct(state, productLink)) {
+            continue;
+          }
+
+          const nextRequest: DiscoveryRequest = {
+            url: productLink,
+            uniqueKey: `${REQUEST_LABEL.N11_PRODUCT}:${productLink}`,
+            userData: {
+              label: REQUEST_LABEL.N11_PRODUCT,
+              platform,
+              query,
+              mode,
+            },
+          };
+
+          if (!seenRequests.has(nextRequest.uniqueKey)) {
+            seenRequests.add(nextRequest.uniqueKey);
+            pendingRequests.push(nextRequest);
+          }
+        }
+
+        continue;
+      }
+
+      if (label === REQUEST_LABEL.N11_PRODUCT) {
+        const sellerLinks = collectSellerLinks($, currentUrl, 'n11', 3);
+
+        for (const sellerLink of sellerLinks) {
+          addSellerCandidate(state, input, sellerLink);
+        }
+      }
+    } catch (error) {
+      state.errorCount += 1;
+      log.warning('Discovery request failed.', {
+        url: request.url,
+        error: toError(error).message,
+      });
+    }
+  }
+}
+
 function addDiscoveredProduct(
   state: SellerCrawlerState,
   productUrl: string,
@@ -295,187 +539,70 @@ try {
   const proxyConfiguration = await getProxyConfig(input.proxyConfig);
   const rateLimiter = new RateLimiter(2_000, 3);
   const discoveryRequests = buildDiscoveryRequests(input, state);
+  const { browser, context } = await createBrowserContext(proxyConfiguration);
 
-  Actor.on('migrating', async () => {
-    await Actor.setValue('MIGRATION_STATE', {
-      discoveredSellerCount: state.discoveredSellerUrls.size,
-      discoveredProductCount: state.discoveredProductUrls.size,
-      pushedSellerCount: state.pushedSellerUrls.size,
-      timestamp: new Date().toISOString(),
+  try {
+    Actor.on('migrating', async () => {
+      await Actor.setValue('MIGRATION_STATE', {
+        discoveredSellerCount: state.discoveredSellerUrls.size,
+        discoveredProductCount: state.discoveredProductUrls.size,
+        pushedSellerCount: state.pushedSellerUrls.size,
+        timestamp: new Date().toISOString(),
+      });
+
+      log.info('Persisted seller intelligence migration state.', {
+        discoveredSellerCount: state.discoveredSellerUrls.size,
+        discoveredProductCount: state.discoveredProductUrls.size,
+        pushedSellerCount: state.pushedSellerUrls.size,
+      });
     });
 
-    log.info('Persisted seller intelligence migration state.', {
-      discoveredSellerCount: state.discoveredSellerUrls.size,
-      discoveredProductCount: state.discoveredProductUrls.size,
-      pushedSellerCount: state.pushedSellerUrls.size,
+    const discoveryCrawler = new CheerioCrawler({
+      proxyConfiguration,
+      maxConcurrency: 1,
+      requestHandler: async () => undefined,
     });
-  });
 
-  const discoveryCrawler = new CheerioCrawler({
-    proxyConfiguration,
-    maxConcurrency: 5,
-    maxRequestRetries: 2,
-    maxRequestsPerCrawl: Math.max(discoveryRequests.length, input.maxSellers * 6),
-    useSessionPool: true,
-    requestHandlerTimeoutSecs: 90,
-    requestHandler: async ({ $, request, enqueueLinks }) => {
-      const { label, platform, query, mode } = request.userData as DiscoveryRequestUserData;
-      const currentUrl = request.loadedUrl ?? request.url;
-      const hostname = new URL(currentUrl).hostname;
+    log.info('Starting seller intelligence run.', {
+      platforms: input.platforms,
+      sellerUrlCount: input.sellerUrls.length,
+      hasSearchBySeller: Boolean(input.searchBySeller),
+      hasSearchByCategory: Boolean(input.searchByCategory),
+      maxSellers: input.maxSellers,
+    });
 
-      await rateLimiter.wait(hostname);
+    if (input.searchBySeller && input.platforms.includes('trendyol')) {
+      try {
+        const apiSellerUrls = await discoverTrendyolSellersViaApi(
+          input.searchBySeller,
+          input.maxSellers,
+          discoveryCrawler,
+        );
 
-      if (label === REQUEST_LABEL.TRENDYOL_SEARCH) {
-        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers * 2);
-
-        if (sellerLinks.length === 0) {
-          log.warning('No Trendyol seller links were discovered from the search page.', {
-            query,
-            mode,
-            url: currentUrl,
-          });
+        for (const sellerUrl of apiSellerUrls) {
+          addSellerCandidate(state, input, sellerUrl);
         }
 
-        for (const sellerLink of sellerLinks) {
-          addSellerCandidate(state, input, sellerLink);
-        }
-
-        return;
-      }
-
-      if (label === REQUEST_LABEL.HEPSIBURADA_DIRECTORY) {
-        $('a[href*="/magaza/"]').each((_: unknown, element: unknown) => {
-          const href = $(element as any).attr('href');
-          const absoluteUrl = href ? new URL(href, currentUrl).toString() : null;
-          const sellerText = $(element as any).text();
-
-          if (!absoluteUrl || !matchesSellerQuery(sellerText, query)) {
-            return;
-          }
-
-          addSellerCandidate(state, input, absoluteUrl);
+        log.info('Discovered Trendyol sellers via search API.', {
+          query: input.searchBySeller,
+          count: apiSellerUrls.length,
         });
-
-        return;
+      } catch (error) {
+        log.warning('Trendyol seller search API failed, falling back to browser discovery.', {
+          error: toError(error).message,
+        });
       }
+    }
 
-      if (label === REQUEST_LABEL.HEPSIBURADA_SEARCH) {
-        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers * 2);
-
-        for (const sellerLink of sellerLinks) {
-          addSellerCandidate(state, input, sellerLink);
-        }
-
-        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
-
-        for (const productLink of productLinks) {
-          if (!addDiscoveredProduct(state, productLink)) {
-            continue;
-          }
-
-          await enqueueLinks({
-            urls: [productLink],
-            userData: {
-              label: REQUEST_LABEL.HEPSIBURADA_PRODUCT,
-              platform,
-              query,
-              mode,
-            } satisfies DiscoveryRequestUserData,
-          });
-        }
-
-        return;
-      }
-
-      if (label === REQUEST_LABEL.HEPSIBURADA_PRODUCT) {
-        const sellerLinks = collectSellerLinks($, currentUrl, 'hepsiburada', 3);
-
-        for (const sellerLink of sellerLinks) {
-          addSellerCandidate(state, input, sellerLink);
-        }
-
-        return;
-      }
-
-      if (label === REQUEST_LABEL.N11_SEARCH) {
-        const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers);
-
-        for (const sellerLink of sellerLinks) {
-          addSellerCandidate(state, input, sellerLink);
-        }
-
-        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
-
-        for (const productLink of productLinks) {
-          if (!addDiscoveredProduct(state, productLink)) {
-            continue;
-          }
-
-          await enqueueLinks({
-            urls: [productLink],
-            userData: {
-              label: REQUEST_LABEL.N11_PRODUCT,
-              platform,
-              query,
-              mode,
-            } satisfies DiscoveryRequestUserData,
-          });
-        }
-
-        return;
-      }
-
-      if (label === REQUEST_LABEL.N11_PRODUCT) {
-        const sellerLinks = collectSellerLinks($, currentUrl, 'n11', 3);
-
-        for (const sellerLink of sellerLinks) {
-          addSellerCandidate(state, input, sellerLink);
-        }
-      }
-    },
-    failedRequestHandler: async ({ request }, error) => {
-      state.errorCount += 1;
-      log.warning('Discovery request failed.', {
-        url: request.url,
-        error: toError(error).message,
-      });
-    },
-  });
-
-  log.info('Starting seller intelligence run.', {
-    platforms: input.platforms,
-    sellerUrlCount: input.sellerUrls.length,
-    hasSearchBySeller: Boolean(input.searchBySeller),
-    hasSearchByCategory: Boolean(input.searchByCategory),
-    maxSellers: input.maxSellers,
-  });
-
-  if (input.searchBySeller && input.platforms.includes('trendyol')) {
-    try {
-      const apiSellerUrls = await discoverTrendyolSellersViaApi(
-        input.searchBySeller,
-        input.maxSellers,
-        discoveryCrawler,
-      );
-
-      for (const sellerUrl of apiSellerUrls) {
-        addSellerCandidate(state, input, sellerUrl);
-      }
-
-      log.info('Discovered Trendyol sellers via search API.', {
-        query: input.searchBySeller,
-        count: apiSellerUrls.length,
-      });
-    } catch (error) {
-      log.warning('Trendyol seller search API failed, falling back to HTML scraping.', {
-        error: toError(error).message,
+    if (discoveryRequests.length > 0) {
+      await runDiscoveryRequests({
+        requests: discoveryRequests,
+        input,
+        state,
+        rateLimiter,
+        browserContext: context,
       });
     }
-  }
-
-  if (discoveryRequests.length > 0) {
-    await discoveryCrawler.run(discoveryRequests);
-  }
 
   const discoveredPlatformCounts = countDiscoveredPlatforms(state.discoveredSellerUrls);
   for (const platform of input.platforms) {
@@ -555,7 +682,11 @@ try {
         const resolvedError = toError(error);
         const errorType = classifyError(resolvedError);
         const isLastAttempt = attempt + 1 >= PER_SELLER_MAX_ATTEMPTS;
-        const retryable = shouldRetry(errorType) && !isLastAttempt;
+        const retryable = (
+          shouldRetry(errorType)
+          || errorType === ErrorType.BLOCKED
+          || errorType === ErrorType.CAPTCHA
+        ) && !isLastAttempt;
 
         log.warning('Seller profile scrape failed.', {
           sellerUrl,
@@ -612,6 +743,10 @@ try {
   }
   finalStatusMessage = `Completed after scraping ${state.pushedSellerUrls.size} seller profiles.`;
   await Actor.setStatusMessage(finalStatusMessage, { isStatusMessageTerminal: true });
+  } finally {
+    await context.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
+  }
 } catch (error) {
   exitCode = 1;
   const resolvedError = toError(error);

@@ -67,6 +67,19 @@ export async function scrapeSeller(url: string, _crawler: CheerioCrawler): Promi
     ? null
     : title.split(` Ma\u011fazas\u0131`)[0]?.trim();
   const headingName = pickFirstText(document.$, ['h1', '[data-test-id="seller-name"]', '.seller-name']);
+  const normalizedHeadingName = normalizeForMatching(headingName ?? '');
+  const resolvedToDirectory = pathname[0] === 'magaza'
+    && pathname.length < 2
+    && (
+      titleLooksGeneric
+      || normalizedHeadingName === 'magazalar'
+      || normalizeForMatching(document.finalUrl) === 'https://www.hepsiburada.com/magaza'
+    );
+
+  if (resolvedToDirectory) {
+    throw new Error(`Resolved to Hepsiburada seller directory instead of a seller profile for ${url}.`);
+  }
+
   const sellerName = headingName
     ?? titleName
     ?? titleFromSlug(sellerSlug);

@@ -31,11 +31,25 @@ export interface FetchedDocument {
   finalUrl: string;
 }
 
+function toPlaywrightProxy(proxyUrl: string): {
+  server: string;
+  username?: string;
+  password?: string;
+} {
+  const parsedUrl = new URL(proxyUrl);
+
+  return {
+    server: `${parsedUrl.protocol}//${parsedUrl.host}`,
+    username: parsedUrl.username || undefined,
+    password: parsedUrl.password || undefined,
+  };
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function looksBlocked(text: string, html?: string): boolean {
+export function looksBlocked(text: string, html?: string): boolean {
   const normalized = normalizeForMatching(text);
 
   if (html) {
@@ -102,16 +116,26 @@ async function fetchDocumentWithPlaywright(url: string, proxyUrl: string | null)
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({
     headless: true,
-    proxy: proxyUrl ? { server: proxyUrl } : undefined,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--lang=tr-TR',
+    ],
+    proxy: proxyUrl ? toPlaywrightProxy(proxyUrl) : undefined,
   });
 
   try {
     const context = await browser.newContext({
       userAgent: USER_AGENT,
       locale: 'tr-TR',
+      viewport: { width: 1440, height: 900 },
       extraHTTPHeaders: {
         'accept-language': DEFAULT_HEADERS['accept-language'],
       },
+    });
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
     });
     const page = await context.newPage();
 
@@ -119,6 +143,7 @@ async function fetchDocumentWithPlaywright(url: string, proxyUrl: string | null)
       waitUntil: 'domcontentloaded',
       timeout: 30_000,
     });
+    await page.waitForTimeout(url.includes('hepsiburada.com') ? 8_000 : url.includes('n11.com') ? 6_000 : 4_000);
 
     const html = await page.content();
     const $ = load(html);
