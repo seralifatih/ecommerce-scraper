@@ -122,6 +122,9 @@ async function discoverTrendyolSellersViaApi(
     const response = await fetchJson<unknown>(endpoint, crawler);
 
     if (!response) {
+      log.info('Trendyol seller-search endpoint did not return parseable JSON.', {
+        endpoint,
+      });
       continue;
     }
 
@@ -131,6 +134,7 @@ async function discoverTrendyolSellersViaApi(
       log.info('Trendyol seller-search endpoint returned no sellers.', {
         endpoint,
         topLevelKeys: Object.keys(response as Record<string, unknown>).slice(0, 8),
+        responseSample: JSON.stringify(response).slice(0, 400),
       });
       continue;
     }
@@ -204,37 +208,46 @@ async function loadDiscoveryPage(
   text: string;
   finalUrl: string;
 }> {
-  const page = await context.newPage();
+  const HARD_TIMEOUT_MS = 45_000;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`loadDiscoveryPage hard timeout (${HARD_TIMEOUT_MS}ms) for ${url}.`)), HARD_TIMEOUT_MS);
+  });
 
-  try {
-    await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30_000,
-    });
+  const work = (async () => {
+    const page = await context.newPage();
 
-    // Wait for the page to settle, but cap the wait so a slow/stalling site
-    // can't drain the actor's budget. networkidle resolves earlier than the
-    // cap on most pages.
-    await Promise.race([
-      page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => undefined),
-      page.waitForTimeout(8_000),
-    ]);
+    try {
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 25_000,
+      });
 
-    const html = await page.content();
-    const text = cleanText(await page.locator('body').innerText().catch(() => ''));
+      // Wait for the page to settle, but cap the wait so a slow/stalling site
+      // can't drain the actor's budget. networkidle resolves earlier than the
+      // cap on most pages.
+      await Promise.race([
+        page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => undefined),
+        page.waitForTimeout(6_000),
+      ]);
 
-    if (looksBlocked(text, html)) {
-      throw new Error(`Blocked or challenge page detected for ${url}.`);
+      const html = await page.content();
+      const text = cleanText(await page.locator('body').innerText().catch(() => ''));
+
+      if (looksBlocked(text, html)) {
+        throw new Error(`Blocked or challenge page detected for ${url}.`);
+      }
+
+      return {
+        html,
+        text,
+        finalUrl: page.url(),
+      };
+    } finally {
+      await page.close().catch(() => undefined);
     }
+  })();
 
-    return {
-      html,
-      text,
-      finalUrl: page.url(),
-    };
-  } finally {
-    await page.close().catch(() => undefined);
-  }
+  return Promise.race([work, timeoutPromise]);
 }
 
 const scraperByPlatform: Record<Platform, typeof scrapeTrendyolSeller> = {
