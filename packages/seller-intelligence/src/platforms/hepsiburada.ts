@@ -59,8 +59,15 @@ export async function scrapeSeller(url: string, _crawler: CheerioCrawler): Promi
   const pathname = new URL(document.finalUrl).pathname.split('/').filter(Boolean);
   const sellerSlug = pathname[1] ?? '';
   const title = cleanText(document.$('title').text());
-  const titleName = title.split(` Ma\u011fazas\u0131`)[0]?.trim();
-  const sellerName = pickFirstText(document.$, ['h1'])
+  const normalizedTitle = normalizeForMatching(title);
+  const titleLooksGeneric = normalizedTitle.startsWith('hepsiburada |')
+    || normalizedTitle.startsWith('hepsiburada -')
+    || normalizedTitle === 'hepsiburada';
+  const titleName = titleLooksGeneric
+    ? null
+    : title.split(` Ma\u011fazas\u0131`)[0]?.trim();
+  const headingName = pickFirstText(document.$, ['h1', '[data-test-id="seller-name"]', '.seller-name']);
+  const sellerName = headingName
     ?? titleName
     ?? titleFromSlug(sellerSlug);
   const followerCount = parseCompactCount(extractFirstMatch(searchableText, [/([0-9.,]+[BMK]?)\s+takipci/i]));

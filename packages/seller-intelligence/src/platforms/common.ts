@@ -1,16 +1,27 @@
 import { load } from 'cheerio';
-import { CheerioCrawler, log } from 'crawlee';
+import { CheerioCrawler, log, ProxyConfiguration } from 'crawlee';
+import { ProxyAgent } from 'undici';
 
 import { cleanText } from '@workspace/shared';
 import type { Platform } from '@workspace/shared';
 import { normalizeForMatching } from '../utils.js';
 
-const DEFAULT_HEADERS = {
-  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+
+const DEFAULT_HEADERS: Record<string, string> = {
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'accept-language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
   'cache-control': 'no-cache',
   pragma: 'no-cache',
-  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-dest': 'document',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-site': 'none',
+  'sec-fetch-user': '?1',
+  'upgrade-insecure-requests': '1',
+  'user-agent': USER_AGENT,
 };
 
 export interface FetchedDocument {
@@ -24,44 +35,89 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function looksBlocked(text: string): boolean {
+function looksBlocked(text: string, html?: string): boolean {
   const normalized = normalizeForMatching(text);
+
+  if (html) {
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+    const normalizedTitle = titleMatch ? normalizeForMatching(titleMatch[1] ?? '') : '';
+
+    if (
+      normalizedTitle.includes('hepsiburada | guvenlik')
+      || normalizedTitle.includes('attention required')
+      || normalizedTitle.includes('just a moment')
+    ) {
+      return true;
+    }
+  }
 
   return normalized.length < 80
     || normalized.includes('sorry, you have been blocked')
     || normalized.includes('unable to access')
     || normalized.includes('please enable cookies')
-    || normalized.includes('guvenlik')
     || normalized.includes('access denied')
-    || normalized.includes('captcha');
+    || normalized.includes('captcha')
+    || normalized.includes('robot dogrulamasi')
+    || normalized.includes('cloudflare');
 }
 
-function shouldUseBrowserFallback(url: string, text: string): boolean {
+function shouldUseBrowserFallback(url: string, text: string, html?: string): boolean {
   if (url.includes('trendyol.com/magaza/')) {
     return true;
   }
 
-  if (looksBlocked(text)) {
-    return true;
-  }
-
-  return false;
+  return looksBlocked(text, html);
 }
 
-async function fetchDocumentWithPlaywright(url: string): Promise<FetchedDocument> {
+function buildRequestHeaders(url: string): Record<string, string> {
+  try {
+    const parsed = new URL(url);
+    const referer = `${parsed.protocol}//${parsed.hostname}/`;
+
+    return {
+      ...DEFAULT_HEADERS,
+      referer,
+      'sec-fetch-site': 'same-origin',
+    };
+  } catch {
+    return { ...DEFAULT_HEADERS };
+  }
+}
+
+async function resolveProxyUrl(crawler?: CheerioCrawler): Promise<string | null> {
+  const proxy = crawler?.proxyConfiguration as ProxyConfiguration | undefined;
+
+  if (!proxy) {
+    return null;
+  }
+
+  try {
+    return (await proxy.newUrl()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchDocumentWithPlaywright(url: string, proxyUrl: string | null): Promise<FetchedDocument> {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    proxy: proxyUrl ? { server: proxyUrl } : undefined,
+  });
 
   try {
     const context = await browser.newContext({
-      userAgent: DEFAULT_HEADERS['user-agent'],
+      userAgent: USER_AGENT,
       locale: 'tr-TR',
+      extraHTTPHeaders: {
+        'accept-language': DEFAULT_HEADERS['accept-language'],
+      },
     });
     const page = await context.newPage();
 
     await page.goto(url, {
-      waitUntil: 'networkidle',
-      timeout: 60_000,
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
     });
 
     const html = await page.content();
@@ -79,93 +135,65 @@ async function fetchDocumentWithPlaywright(url: string): Promise<FetchedDocument
   }
 }
 
+async function fetchDocumentDirect(url: string, proxyUrl: string | null): Promise<FetchedDocument> {
+  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+  const response = await fetch(url, {
+    headers: buildRequestHeaders(url),
+    redirect: 'follow',
+    signal: AbortSignal.timeout(20_000),
+    ...(dispatcher ? { dispatcher } : {}),
+  } as RequestInit);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url} with status ${response.status}.`);
+  }
+
+  const html = await response.text();
+  const $ = load(html);
+
+  return {
+    html,
+    $,
+    text: cleanText($('body').text()),
+    finalUrl: response.url,
+  };
+}
+
 export async function fetchDocument(url: string, crawler?: CheerioCrawler): Promise<FetchedDocument> {
-  let crawlerDocument: FetchedDocument | null = null;
-  let crawlerError: Error | null = null;
+  const proxyUrl = await resolveProxyUrl(crawler);
+  let directError: Error | null = null;
 
-  if (crawler) {
-    const singlePageCrawler = new CheerioCrawler({
-      proxyConfiguration: crawler.proxyConfiguration,
-      maxRequestsPerCrawl: 1,
-      maxRequestRetries: 0,
-      requestHandlerTimeoutSecs: 30,
-      requestHandler: async ({ $, body, request }) => {
-        crawlerDocument = {
-          html: typeof body === 'string' ? body : String(body),
-          $,
-          text: cleanText($('body').text()),
-          finalUrl: request.loadedUrl ?? request.url,
-        };
-      },
-      failedRequestHandler: async ({ request }, error) => {
-        crawlerError = error instanceof Error
-          ? error
-          : new Error(`Failed to fetch ${request.url}.`);
-      },
-    });
+  try {
+    const document = await fetchDocumentDirect(url, proxyUrl);
 
-    await singlePageCrawler.run([url]);
-
-    const capturedDocument = crawlerDocument as FetchedDocument | null;
-
-    if (capturedDocument && !shouldUseBrowserFallback(url, capturedDocument.text)) {
-      return capturedDocument;
+    if (!shouldUseBrowserFallback(url, document.text, document.html)) {
+      return document;
     }
-
-    if (crawlerError) {
-      try {
-        return await fetchDocumentWithPlaywright(url);
-      } catch {
-        throw crawlerError;
-      }
-    }
+  } catch (error) {
+    directError = toError(error);
   }
 
   try {
-    const response = await fetch(url, {
-      headers: DEFAULT_HEADERS,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url} with status ${response.status}.`);
-    }
-
-    const html = await response.text();
-    const $ = load(html);
-
-    const document = {
-      html,
-      $,
-      text: cleanText($('body').text()),
-      finalUrl: response.url,
-    };
- 
-    if (shouldUseBrowserFallback(url, document.text)) {
-      throw new Error(`Blocked response detected for ${url}.`);
-    }
-
-    return document;
-  } catch (error) {
-    try {
-      return await fetchDocumentWithPlaywright(url);
-    } catch {
-      throw toError(error);
-    }
+    return await fetchDocumentWithPlaywright(url, proxyUrl);
+  } catch (browserError) {
+    throw directError ?? toError(browserError);
   }
 }
 
-export async function fetchJson<T>(url: string): Promise<T | null> {
+export async function fetchJson<T>(url: string, crawler?: CheerioCrawler): Promise<T | null> {
+  const proxyUrl = await resolveProxyUrl(crawler);
+  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+
   try {
     const response = await fetch(url, {
       headers: {
-        ...DEFAULT_HEADERS,
+        ...buildRequestHeaders(url),
         accept: 'application/json,text/plain,*/*',
       },
       redirect: 'follow',
-      signal: AbortSignal.timeout(20_000),
-    });
+      signal: AbortSignal.timeout(15_000),
+      ...(dispatcher ? { dispatcher } : {}),
+    } as RequestInit);
 
     if (!response.ok) {
       return null;

@@ -5,6 +5,7 @@ import { ZodError } from 'zod';
 
 import {
   classifyError,
+  ErrorType,
   getProxyConfig,
   getRetryDelay,
   RateLimiter,
@@ -33,6 +34,53 @@ import {
   matchesSellerQuery,
   normalizeUrl,
 } from './utils.js';
+import { fetchJson } from './platforms/common.js';
+
+interface TrendyolSellerSearchResponse {
+  result?: {
+    sellers?: Array<{
+      id?: number | string;
+      name?: string;
+      url?: string;
+    }>;
+  };
+}
+
+async function discoverTrendyolSellersViaApi(
+  query: string,
+  limit: number,
+  crawler?: CheerioCrawler,
+): Promise<string[]> {
+  const apiUrl = `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${Math.max(20, limit)}&culture=tr-TR&storefrontId=1`;
+  const response = await fetchJson<TrendyolSellerSearchResponse>(apiUrl, crawler);
+  const sellers = response?.result?.sellers ?? [];
+  const urls: string[] = [];
+
+  for (const seller of sellers) {
+    if (typeof seller.url === 'string' && seller.url) {
+      const absolute = seller.url.startsWith('http')
+        ? seller.url
+        : `https://www.trendyol.com${seller.url.startsWith('/') ? '' : '/'}${seller.url}`;
+      urls.push(absolute);
+      continue;
+    }
+
+    const id = seller.id;
+    const name = seller.name;
+
+    if (id !== undefined && id !== null && typeof name === 'string' && name) {
+      const slug = name
+        .toLocaleLowerCase('tr-TR')
+        .normalize('NFKD')
+        .replace(/\p{Diacritic}/gu, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      urls.push(`https://www.trendyol.com/magaza/${slug}-m-${id}`);
+    }
+  }
+
+  return urls;
+}
 
 interface DiscoveryRequest {
   url: string;
@@ -402,6 +450,29 @@ try {
     maxSellers: input.maxSellers,
   });
 
+  if (input.searchBySeller && input.platforms.includes('trendyol')) {
+    try {
+      const apiSellerUrls = await discoverTrendyolSellersViaApi(
+        input.searchBySeller,
+        input.maxSellers,
+        discoveryCrawler,
+      );
+
+      for (const sellerUrl of apiSellerUrls) {
+        addSellerCandidate(state, input, sellerUrl);
+      }
+
+      log.info('Discovered Trendyol sellers via search API.', {
+        query: input.searchBySeller,
+        count: apiSellerUrls.length,
+      });
+    } catch (error) {
+      log.warning('Trendyol seller search API failed, falling back to HTML scraping.', {
+        error: toError(error).message,
+      });
+    }
+  }
+
   if (discoveryRequests.length > 0) {
     await discoveryCrawler.run(discoveryRequests);
   }
@@ -415,65 +486,129 @@ try {
   }
 
   const sellerUrls = [...state.discoveredSellerUrls].slice(0, input.maxSellers);
+  const PER_SELLER_MAX_ATTEMPTS = 2;
+  const PLATFORM_CONCURRENCY = 3;
+  const PLATFORM_BLOCK_THRESHOLD = 3;
+  const timeoutSecs = Number.parseInt(process.env.ACTOR_TIMEOUT_SECS ?? '0', 10);
+  const safetyMarginMs = 30_000;
+  const deadline = timeoutSecs > 0 ? startedAt + timeoutSecs * 1_000 - safetyMarginMs : Number.POSITIVE_INFINITY;
+  const blockedCountByPlatform: Record<Platform, number> = createEmptyPlatformBreakdown();
+  const skippedPlatforms = new Set<Platform>();
+
+  const sellerUrlsByPlatform = new Map<Platform, string[]>();
+
+  for (const sellerUrl of sellerUrls) {
+    const platform = detectPlatformFromUrl(sellerUrl);
+
+    if (!platform) {
+      log.warning('Skipping seller URL because the platform could not be detected.', { sellerUrl });
+      continue;
+    }
+
+    const bucket = sellerUrlsByPlatform.get(platform);
+
+    if (bucket) {
+      bucket.push(sellerUrl);
+    } else {
+      sellerUrlsByPlatform.set(platform, [sellerUrl]);
+    }
+  }
+
+  async function scrapeOne(sellerUrl: string, platform: Platform): Promise<void> {
+    if (skippedPlatforms.has(platform)) {
+      return;
+    }
+
+    if (Date.now() > deadline) {
+      return;
+    }
+
+    const scraper = scraperByPlatform[platform];
+    const hostname = new URL(sellerUrl).hostname;
+
+    for (let attempt = 0; attempt < PER_SELLER_MAX_ATTEMPTS; attempt += 1) {
+      if (skippedPlatforms.has(platform) || Date.now() > deadline) {
+        return;
+      }
+
+      await rateLimiter.wait(hostname);
+
+      try {
+        const profile = await scraper(sellerUrl, discoveryCrawler);
+        const validatedProfile = sellerProfileSchema.parse(profile);
+
+        if (!state.pushedSellerUrls.has(validatedProfile.sellerUrl)) {
+          await Actor.pushData(validatedProfile);
+          state.pushedSellerUrls.add(validatedProfile.sellerUrl);
+          platformBreakdown[validatedProfile.platform] += 1;
+
+          log.info(`Scraped ${state.pushedSellerUrls.size}/${sellerUrls.length} sellers...`, {
+            platform: validatedProfile.platform,
+            sellerName: validatedProfile.sellerName,
+          });
+        }
+
+        rateLimiter.reset(hostname);
+        blockedCountByPlatform[platform] = 0;
+        return;
+      } catch (error) {
+        const resolvedError = toError(error);
+        const errorType = classifyError(resolvedError);
+        const isLastAttempt = attempt + 1 >= PER_SELLER_MAX_ATTEMPTS;
+        const retryable = shouldRetry(errorType) && !isLastAttempt;
+
+        log.warning('Seller profile scrape failed.', {
+          sellerUrl,
+          platform,
+          attempt: attempt + 1,
+          errorType,
+          error: resolvedError.message,
+        });
+
+        if (errorType === ErrorType.BLOCKED || errorType === ErrorType.CAPTCHA) {
+          blockedCountByPlatform[platform] += 1;
+
+          if (blockedCountByPlatform[platform] >= PLATFORM_BLOCK_THRESHOLD) {
+            skippedPlatforms.add(platform);
+            log.warning('Skipping remaining sellers on platform after repeated blocks.', {
+              platform,
+              consecutiveBlocks: blockedCountByPlatform[platform],
+            });
+          }
+        }
+
+        if (!retryable) {
+          state.errorCount += 1;
+          return;
+        }
+
+        rateLimiter.backoff(hostname);
+        await sleep(getRetryDelay(attempt));
+      }
+    }
+  }
+
+  async function scrapePlatformBucket(platform: Platform, urls: string[]): Promise<void> {
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(PLATFORM_CONCURRENCY, urls.length) }, async () => {
+      while (cursor < urls.length) {
+        const index = cursor;
+        cursor += 1;
+        await scrapeOne(urls[index], platform);
+      }
+    });
+
+    await Promise.all(workers);
+  }
 
   if (sellerUrls.length === 0) {
     log.warning('No seller URLs were discovered for this run.');
   } else {
-    for (const sellerUrl of sellerUrls) {
-      const platform = detectPlatformFromUrl(sellerUrl);
-
-      if (!platform) {
-        log.warning('Skipping seller URL because the platform could not be detected.', { sellerUrl });
-        continue;
-      }
-
-      const scraper = scraperByPlatform[platform];
-      const hostname = new URL(sellerUrl).hostname;
-      let attempt = 0;
-
-      while (attempt <= 3) {
-        await rateLimiter.wait(hostname);
-
-        try {
-          const profile = await scraper(sellerUrl, discoveryCrawler);
-          const validatedProfile = sellerProfileSchema.parse(profile);
-
-          if (!state.pushedSellerUrls.has(validatedProfile.sellerUrl)) {
-            await Actor.pushData(validatedProfile);
-            state.pushedSellerUrls.add(validatedProfile.sellerUrl);
-            platformBreakdown[validatedProfile.platform] += 1;
-
-            log.info(`Scraped ${state.pushedSellerUrls.size}/${sellerUrls.length} sellers...`, {
-              platform: validatedProfile.platform,
-              sellerName: validatedProfile.sellerName,
-            });
-          }
-
-          rateLimiter.reset(hostname);
-          break;
-        } catch (error) {
-          const resolvedError = toError(error);
-          const errorType = classifyError(resolvedError);
-
-          log.warning('Seller profile scrape failed.', {
-            sellerUrl,
-            platform,
-            attempt: attempt + 1,
-            errorType,
-            error: resolvedError.message,
-          });
-
-          if (!shouldRetry(errorType) || attempt >= 3) {
-            state.errorCount += 1;
-            break;
-          }
-
-          rateLimiter.backoff(hostname);
-          await sleep(getRetryDelay(attempt));
-          attempt += 1;
-        }
-      }
-    }
+    await Promise.all(
+      [...sellerUrlsByPlatform.entries()].map(([platform, urls]) =>
+        scrapePlatformBucket(platform, urls),
+      ),
+    );
   }
   finalStatusMessage = `Completed after scraping ${state.pushedSellerUrls.size} seller profiles.`;
   await Actor.setStatusMessage(finalStatusMessage, { isStatusMessageTerminal: true });

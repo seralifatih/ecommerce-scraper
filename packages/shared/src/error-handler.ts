@@ -18,11 +18,11 @@ export function classifyError(error: Error, statusCode?: number): ErrorType {
     return ErrorType.CAPTCHA;
   }
 
-  if (statusCode === 429 || statusCode === 503 || /rate limit|too many requests/.test(message)) {
+  if (statusCode === 429 || statusCode === 503 || /rate limit|too many requests|status 429|status 503/.test(message)) {
     return ErrorType.RATE_LIMITED;
   }
 
-  if (statusCode === 401 || statusCode === 403 || /forbidden|access denied|blocked/.test(message)) {
+  if (statusCode === 401 || statusCode === 403 || /forbidden|access denied|blocked|status 401|status 403/.test(message)) {
     return ErrorType.BLOCKED;
   }
 

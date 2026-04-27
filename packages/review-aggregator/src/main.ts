@@ -77,7 +77,7 @@ async function createBrowserContext(proxyConfiguration?: ProxyConfiguration): Pr
   browser: Browser;
   context: BrowserContext;
 }> {
-  const proxyUrl = await proxyConfiguration?.newUrl('review-aggregator');
+  const proxyUrl = await proxyConfiguration?.newUrl('review_aggregator');
   const browser = await chromium.launch({
     headless: process.env.APIFY_HEADLESS === '0' ? false : true,
     args: [

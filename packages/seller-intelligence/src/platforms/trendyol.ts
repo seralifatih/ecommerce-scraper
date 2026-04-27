@@ -49,11 +49,13 @@ export async function scrapeSeller(url: string, _crawler: CheerioCrawler): Promi
   const followApi = sellerId
     ? await fetchJson<TrendyolFollowerResponse>(
       `https://apigw.trendyol.com/discovery-sellerstore-gateway-service/api/follow/?sellerId=${sellerId}&culture=tr-TR&checkCoupon=true`,
+      _crawler,
     )
     : null;
   const aggregationApi = sellerId
     ? await fetchJson<TrendyolAggregationResponse>(
       `https://apigw.trendyol.com/discovery-sellerstore-gateway-service/api/search/aggregations?sellerId=${sellerId}&culture=tr-TR&countryCode=TR&language=tr&storefrontId=1`,
+      _crawler,
     )
     : null;
   const followerCount = typeof followApi?.count === 'number'

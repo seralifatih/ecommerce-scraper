@@ -89,9 +89,6 @@ async function handleListingPage(
   }
 
   const requestUrl = getRequestUrl(context);
-  const requestQueue = context.requestQueue as {
-    addRequests: (requests: Array<Record<string, unknown>>) => Promise<unknown>;
-  };
 
   await context.page.waitForSelector('a.product-item, .not-found-wrapper', { timeout: 15_000 }).catch(() => undefined);
   const html = await context.page.content();
@@ -116,7 +113,7 @@ async function handleListingPage(
     });
 
   if (detailRequests.length > 0) {
-    await requestQueue.addRequests(detailRequests);
+    await context.addRequests(detailRequests);
   }
 
   if (parseResult.nextPageUrl && shouldContinueCrawling(dependencies.input, dependencies.state)) {
@@ -124,7 +121,7 @@ async function handleListingPage(
       ? RequestLabel.CATEGORY
       : RequestLabel.SEARCH;
 
-    await requestQueue.addRequests([{
+    await context.addRequests([{
       url: parseResult.nextPageUrl,
       uniqueKey: `${requestLabel}:${parseResult.nextPageUrl}`,
       label: requestLabel,
