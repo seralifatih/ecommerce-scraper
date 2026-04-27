@@ -1,6 +1,6 @@
 import { Actor } from 'apify';
 import { MemoryStorage } from '@crawlee/memory-storage';
-import { PlaywrightCrawler, log } from 'crawlee';
+import { CheerioCrawler, log } from 'crawlee';
 import { ZodError } from 'zod';
 
 import { RateLimiter, getProxyConfig } from '@workspace/shared';
@@ -91,6 +91,7 @@ try {
     input,
     rateLimiter,
     state: crawlerState,
+    proxyConfiguration,
   });
   const startRequests = buildStartRequests(input);
 
@@ -107,28 +108,32 @@ try {
     });
   });
 
-  const crawler = new PlaywrightCrawler({
+  const crawler = new CheerioCrawler({
     proxyConfiguration,
     requestHandler: router,
     maxRequestsPerCrawl: Math.max(startRequests.length, input.maxProducts * 4),
     maxRequestRetries: 3,
     maxConcurrency: 5,
-    navigationTimeoutSecs: 90,
-    requestHandlerTimeoutSecs: 120,
+    navigationTimeoutSecs: 30,
+    requestHandlerTimeoutSecs: 30,
+    useSessionPool: true,
+    persistCookiesPerSession: true,
     preNavigationHooks: [
-      async ({ page }, gotoOptions) => {
-        gotoOptions.waitUntil = 'domcontentloaded';
-
-        await page.route('**/*', async (route) => {
-          const resourceType = route.request().resourceType();
-
-          if (resourceType === 'font' || resourceType === 'image' || resourceType === 'media') {
-            await route.abort();
-            return;
-          }
-
-          await route.continue();
-        });
+      async (_context, gotoOptions) => {
+        gotoOptions.headers = {
+          ...gotoOptions.headers,
+          accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'accept-language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+          'sec-ch-ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"Windows"',
+          'sec-fetch-dest': 'document',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-user': '?1',
+          'upgrade-insecure-requests': '1',
+          referer: 'https://www.n11.com/',
+        };
       },
     ],
     failedRequestHandler: async (context, error) => {

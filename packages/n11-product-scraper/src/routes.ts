@@ -1,6 +1,7 @@
 import { Actor } from 'apify';
 import { load } from 'cheerio';
-import { createPlaywrightRouter, log, type PlaywrightCrawlingContext } from 'crawlee';
+import { createCheerioRouter, log, type CheerioCrawlingContext, type ProxyConfiguration } from 'crawlee';
+import { ProxyAgent } from 'undici';
 
 import { RateLimiter, classifyError, getRetryDelay, shouldRetry } from '@workspace/shared';
 
@@ -23,9 +24,12 @@ interface RouterDependencies {
   input: ActorInput;
   rateLimiter: RateLimiter;
   state: N11CrawlerState;
+  proxyConfiguration?: ProxyConfiguration;
 }
 
-function getRequestUrl(context: Pick<PlaywrightCrawlingContext, 'request'>): string {
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+
+function getRequestUrl(context: Pick<CheerioCrawlingContext, 'request'>): string {
   return context.request.loadedUrl ?? context.request.url;
 }
 
@@ -38,9 +42,9 @@ function toError(error: unknown): Error {
 }
 
 async function fetchDescriptionEnrichment(
-  context: PlaywrightCrawlingContext,
   internalProductId: string | null,
   scrapeDetails: boolean,
+  proxyConfiguration?: ProxyConfiguration,
 ): Promise<DetailEnrichment> {
   if (!scrapeDetails || !internalProductId) {
     return {
@@ -51,10 +55,29 @@ async function fetchDescriptionEnrichment(
   }
 
   try {
-    const responseText = await context.page.evaluate(async (productId) => {
-      const response = await fetch(`https://www.n11.com/rest/v1/getProductDescriptions/${productId}`);
-      return response.ok ? await response.text() : '';
-    }, internalProductId);
+    const proxyUrl = proxyConfiguration ? (await proxyConfiguration.newUrl()) ?? null : null;
+    const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+    const response = await fetch(`https://www.n11.com/rest/v1/getProductDescriptions/${internalProductId}`, {
+      headers: {
+        accept: 'application/json,text/plain,*/*',
+        'accept-language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'user-agent': USER_AGENT,
+        referer: 'https://www.n11.com/',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15_000),
+      ...(dispatcher ? { dispatcher } : {}),
+    } as RequestInit);
+
+    if (!response.ok) {
+      return {
+        description: null,
+        descriptionHtml: null,
+        specifications: {},
+      };
+    }
+
+    const responseText = await response.text();
 
     if (!responseText) {
       return {
@@ -80,7 +103,7 @@ async function fetchDescriptionEnrichment(
 }
 
 async function handleListingPage(
-  context: PlaywrightCrawlingContext,
+  context: CheerioCrawlingContext,
   dependencies: RouterDependencies,
 ): Promise<void> {
   if (!shouldContinueCrawling(dependencies.input, dependencies.state)) {
@@ -89,9 +112,7 @@ async function handleListingPage(
   }
 
   const requestUrl = getRequestUrl(context);
-
-  await context.page.waitForSelector('a.product-item, .not-found-wrapper', { timeout: 15_000 }).catch(() => undefined);
-  const html = await context.page.content();
+  const html = context.body.toString();
   const $ = load(html);
   const parseResult = parseListingPage($, html, requestUrl);
   const remainingCapacity = dependencies.input.maxProducts - dependencies.state.enqueuedProductUrls.size;
@@ -139,7 +160,7 @@ async function handleListingPage(
 }
 
 async function handleDetailPage(
-  context: PlaywrightCrawlingContext,
+  context: CheerioCrawlingContext,
   dependencies: RouterDependencies,
 ): Promise<void> {
   const requestUrl = getRequestUrl(context);
@@ -152,11 +173,14 @@ async function handleDetailPage(
     return;
   }
 
-  await context.page.waitForSelector('h1.title, .not-found-wrapper', { timeout: 15_000 }).catch(() => undefined);
-  const html = await context.page.content();
+  const html = context.body.toString();
   const $ = load(html);
   const internalProductId = extractInternalProductIdFromDetailPage(html, listingCandidate);
-  const enrichment = await fetchDescriptionEnrichment(context, internalProductId, dependencies.input.scrapeDetails);
+  const enrichment = await fetchDescriptionEnrichment(
+    internalProductId,
+    dependencies.input.scrapeDetails,
+    dependencies.proxyConfiguration,
+  );
   const candidateRecord = buildProductFromDetailPage({
     $,
     html,
@@ -191,14 +215,14 @@ async function handleDetailPage(
 }
 
 export function createN11Router(dependencies: RouterDependencies) {
-  const router = createPlaywrightRouter();
+  const router = createCheerioRouter();
 
   router.use(async (context) => {
     const requestUrl = getRequestUrl(context);
     const domain = new URL(requestUrl).hostname;
     await dependencies.rateLimiter.wait(domain);
 
-    const statusCode = context.response?.status() ?? null;
+    const statusCode = context.response?.statusCode ?? null;
 
     if (statusCode === 429 || statusCode === 503) {
       dependencies.rateLimiter.backoff(domain);
@@ -233,13 +257,13 @@ export function createN11Router(dependencies: RouterDependencies) {
 }
 
 export function handleFailedRequest(
-  context: PlaywrightCrawlingContext,
+  context: CheerioCrawlingContext,
   error: unknown,
   state?: Pick<N11CrawlerState, 'errorCount'>,
 ) {
   const requestUrl = getRequestUrl(context);
   const normalizedError = toError(error);
-  const errorType = classifyError(normalizedError, context.response?.status());
+  const errorType = classifyError(normalizedError, context.response?.statusCode);
   if (state) {
     state.errorCount += 1;
   }
