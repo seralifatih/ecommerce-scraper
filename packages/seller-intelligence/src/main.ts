@@ -38,14 +38,72 @@ import {
 } from './utils.js';
 import { fetchJson, looksBlocked } from './platforms/common.js';
 
-interface TrendyolSellerSearchResponse {
-  result?: {
-    sellers?: Array<{
-      id?: number | string;
-      name?: string;
-      url?: string;
-    }>;
-  };
+interface TrendyolSellerCandidate {
+  id?: number | string;
+  sellerId?: number | string;
+  name?: string;
+  sellerName?: string;
+  title?: string;
+  url?: string;
+  link?: string;
+  storeUrl?: string;
+}
+
+function buildTrendyolSellerUrl(candidate: TrendyolSellerCandidate): string | null {
+  const candidateUrl = candidate.url ?? candidate.link ?? candidate.storeUrl;
+
+  if (typeof candidateUrl === 'string' && candidateUrl) {
+    if (candidateUrl.startsWith('http')) {
+      return candidateUrl;
+    }
+
+    return `https://www.trendyol.com${candidateUrl.startsWith('/') ? '' : '/'}${candidateUrl}`;
+  }
+
+  const id = candidate.id ?? candidate.sellerId;
+  const name = candidate.name ?? candidate.sellerName ?? candidate.title;
+
+  if (id === undefined || id === null || typeof name !== 'string' || !name) {
+    return null;
+  }
+
+  const slug = name
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!slug) {
+    return null;
+  }
+
+  return `https://www.trendyol.com/magaza/${slug}-m-${id}`;
+}
+
+function extractTrendyolSellerCandidates(payload: unknown): TrendyolSellerCandidate[] {
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const candidatePaths = [
+    (data: any) => data?.result?.sellers,
+    (data: any) => data?.result?.products,
+    (data: any) => data?.data?.sellers,
+    (data: any) => data?.sellers,
+    (data: any) => data?.merchants,
+    (data: any) => data?.result?.merchants,
+  ];
+
+  for (const accessor of candidatePaths) {
+    const items = accessor(payload);
+
+    if (Array.isArray(items) && items.length > 0) {
+      return items as TrendyolSellerCandidate[];
+    }
+  }
+
+  return [];
 }
 
 async function discoverTrendyolSellersViaApi(
@@ -53,35 +111,40 @@ async function discoverTrendyolSellersViaApi(
   limit: number,
   crawler?: CheerioCrawler,
 ): Promise<string[]> {
-  const apiUrl = `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${Math.max(20, limit)}&culture=tr-TR&storefrontId=1`;
-  const response = await fetchJson<TrendyolSellerSearchResponse>(apiUrl, crawler);
-  const sellers = response?.result?.sellers ?? [];
-  const urls: string[] = [];
+  const size = Math.max(20, limit);
+  const endpoints = [
+    `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
+    `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v1/api/sellers/search?q=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
+    `https://apigw.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
+  ];
 
-  for (const seller of sellers) {
-    if (typeof seller.url === 'string' && seller.url) {
-      const absolute = seller.url.startsWith('http')
-        ? seller.url
-        : `https://www.trendyol.com${seller.url.startsWith('/') ? '' : '/'}${seller.url}`;
-      urls.push(absolute);
+  for (const endpoint of endpoints) {
+    const response = await fetchJson<unknown>(endpoint, crawler);
+
+    if (!response) {
       continue;
     }
 
-    const id = seller.id;
-    const name = seller.name;
+    const candidates = extractTrendyolSellerCandidates(response);
 
-    if (id !== undefined && id !== null && typeof name === 'string' && name) {
-      const slug = name
-        .toLocaleLowerCase('tr-TR')
-        .normalize('NFKD')
-        .replace(/\p{Diacritic}/gu, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      urls.push(`https://www.trendyol.com/magaza/${slug}-m-${id}`);
+    if (candidates.length === 0) {
+      log.info('Trendyol seller-search endpoint returned no sellers.', {
+        endpoint,
+        topLevelKeys: Object.keys(response as Record<string, unknown>).slice(0, 8),
+      });
+      continue;
+    }
+
+    const urls = candidates
+      .map(buildTrendyolSellerUrl)
+      .filter((value): value is string => Boolean(value));
+
+    if (urls.length > 0) {
+      return urls;
     }
   }
 
-  return urls;
+  return [];
 }
 
 interface DiscoveryRequest {
@@ -146,11 +209,16 @@ async function loadDiscoveryPage(
   try {
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
-      timeout: 120_000,
+      timeout: 30_000,
     });
-    await page.waitForTimeout(
-      url.includes('hepsiburada.com') ? 10_000 : url.includes('n11.com') ? 8_000 : 5_000,
-    );
+
+    // Wait for the page to settle, but cap the wait so a slow/stalling site
+    // can't drain the actor's budget. networkidle resolves earlier than the
+    // cap on most pages.
+    await Promise.race([
+      page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => undefined),
+      page.waitForTimeout(8_000),
+    ]);
 
     const html = await page.content();
     const text = cleanText(await page.locator('body').innerText().catch(() => ''));
@@ -343,6 +411,7 @@ async function runDiscoveryRequests(options: {
   state: SellerCrawlerState;
   rateLimiter: RateLimiter;
   browserContext: Awaited<ReturnType<typeof createBrowserContext>>['context'];
+  deadline: number;
 }): Promise<void> {
   const {
     requests,
@@ -350,11 +419,22 @@ async function runDiscoveryRequests(options: {
     state,
     rateLimiter,
     browserContext,
+    deadline,
   } = options;
   const pendingRequests = [...requests];
   const seenRequests = new Set<string>(pendingRequests.map((request) => request.uniqueKey));
+  const platformFailures: Record<Platform, number> = createEmptyPlatformBreakdown();
+  const skippedPlatforms = new Set<Platform>();
+  const PLATFORM_FAILURE_LIMIT = 2;
 
   while (pendingRequests.length > 0) {
+    if (Date.now() > deadline) {
+      log.warning('Discovery deadline reached, abandoning remaining requests.', {
+        remaining: pendingRequests.length,
+      });
+      return;
+    }
+
     const request = pendingRequests.shift();
 
     if (!request) {
@@ -363,6 +443,10 @@ async function runDiscoveryRequests(options: {
 
     const { label, platform, query, mode } = request.userData;
 
+    if (skippedPlatforms.has(platform)) {
+      continue;
+    }
+
     try {
       const hostname = new URL(request.url).hostname;
       await rateLimiter.wait(hostname);
@@ -370,6 +454,7 @@ async function runDiscoveryRequests(options: {
       const document = await loadDiscoveryPage(request.url, browserContext);
       const $ = load(document.html);
       const currentUrl = document.finalUrl;
+      platformFailures[platform] = 0;
 
       if (label === REQUEST_LABEL.TRENDYOL_SEARCH) {
         const sellerLinks = collectSellerLinks($, currentUrl, platform, input.maxSellers * 2);
@@ -492,10 +577,21 @@ async function runDiscoveryRequests(options: {
       }
     } catch (error) {
       state.errorCount += 1;
+      platformFailures[platform] += 1;
       log.warning('Discovery request failed.', {
         url: request.url,
+        platform,
+        consecutiveFailures: platformFailures[platform],
         error: toError(error).message,
       });
+
+      if (platformFailures[platform] >= PLATFORM_FAILURE_LIMIT) {
+        skippedPlatforms.add(platform);
+        log.warning('Skipping further discovery on platform after repeated failures.', {
+          platform,
+          consecutiveFailures: platformFailures[platform],
+        });
+      }
     }
   }
 }
@@ -539,6 +635,15 @@ try {
   const proxyConfiguration = await getProxyConfig(input.proxyConfig);
   const rateLimiter = new RateLimiter(2_000, 3);
   const discoveryRequests = buildDiscoveryRequests(input, state);
+  const actorTimeoutSecs = Number.parseInt(process.env.ACTOR_TIMEOUT_SECS ?? '0', 10);
+  const safetyMarginMs = 30_000;
+  const overallDeadline = actorTimeoutSecs > 0
+    ? startedAt + actorTimeoutSecs * 1_000 - safetyMarginMs
+    : Number.POSITIVE_INFINITY;
+  // Reserve at most 60% of the remaining budget for discovery so per-seller scraping has room.
+  const discoveryDeadline = Number.isFinite(overallDeadline)
+    ? Math.min(overallDeadline, startedAt + Math.floor((overallDeadline - startedAt) * 0.6))
+    : overallDeadline;
   const { browser, context } = await createBrowserContext(proxyConfiguration);
 
   try {
@@ -601,6 +706,7 @@ try {
         state,
         rateLimiter,
         browserContext: context,
+        deadline: discoveryDeadline,
       });
     }
 
@@ -616,9 +722,7 @@ try {
   const PER_SELLER_MAX_ATTEMPTS = 2;
   const PLATFORM_CONCURRENCY = 3;
   const PLATFORM_BLOCK_THRESHOLD = 3;
-  const timeoutSecs = Number.parseInt(process.env.ACTOR_TIMEOUT_SECS ?? '0', 10);
-  const safetyMarginMs = 30_000;
-  const deadline = timeoutSecs > 0 ? startedAt + timeoutSecs * 1_000 - safetyMarginMs : Number.POSITIVE_INFINITY;
+  const deadline = overallDeadline;
   const blockedCountByPlatform: Record<Platform, number> = createEmptyPlatformBreakdown();
   const skippedPlatforms = new Set<Platform>();
 
