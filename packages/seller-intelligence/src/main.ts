@@ -112,10 +112,11 @@ async function discoverTrendyolSellersViaApi(
   crawler?: CheerioCrawler,
 ): Promise<string[]> {
   const size = Math.max(20, limit);
+  // Single best-known endpoint. Multiple attempts here previously burned 5-15s
+  // per run because all variants get blocked by Cloudflare on residential
+  // proxies. If this one fails we fall through to the HTML SRP path.
   const endpoints = [
     `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
-    `https://public-mdc.trendyol.com/discovery-web-searchgw-service/v1/api/sellers/search?q=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
-    `https://apigw.trendyol.com/discovery-web-searchgw-service/v2/api/sellers/search?keyword=${encodeURIComponent(query)}&size=${size}&culture=tr-TR&storefrontId=1`,
   ];
 
   for (const endpoint of endpoints) {
@@ -208,26 +209,33 @@ async function loadDiscoveryPage(
   text: string;
   finalUrl: string;
 }> {
-  const HARD_TIMEOUT_MS = 45_000;
+  const HARD_TIMEOUT_MS = 35_000;
+  let timeoutHandle: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`loadDiscoveryPage hard timeout (${HARD_TIMEOUT_MS}ms) for ${url}.`)), HARD_TIMEOUT_MS);
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`loadDiscoveryPage hard timeout (${HARD_TIMEOUT_MS}ms) for ${url}.`)),
+      HARD_TIMEOUT_MS,
+    );
   });
 
   const work = (async () => {
+    log.info('Discovery: opening browser page.', { url });
     const page = await context.newPage();
+    log.info('Discovery: page opened, navigating.', { url });
 
     try {
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 25_000,
+        timeout: 20_000,
       });
+      log.info('Discovery: navigation complete.', { url, finalUrl: page.url() });
 
       // Wait for the page to settle, but cap the wait so a slow/stalling site
       // can't drain the actor's budget. networkidle resolves earlier than the
       // cap on most pages.
       await Promise.race([
-        page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => undefined),
-        page.waitForTimeout(6_000),
+        page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined),
+        page.waitForTimeout(5_000),
       ]);
 
       const html = await page.content();
@@ -247,7 +255,13 @@ async function loadDiscoveryPage(
     }
   })();
 
-  return Promise.race([work, timeoutPromise]);
+  try {
+    return await Promise.race([work, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 const scraperByPlatform: Record<Platform, typeof scrapeTrendyolSeller> = {
@@ -462,9 +476,12 @@ async function runDiscoveryRequests(options: {
 
     try {
       const hostname = new URL(request.url).hostname;
+      log.info('Discovery: starting request.', { url: request.url, platform, label });
       await rateLimiter.wait(hostname);
 
+      log.info('Discovery: rate-limit cleared, loading page.', { url: request.url });
       const document = await loadDiscoveryPage(request.url, browserContext);
+      log.info('Discovery: page loaded.', { url: request.url, finalUrl: document.finalUrl });
       const $ = load(document.html);
       const currentUrl = document.finalUrl;
       platformFailures[platform] = 0;
