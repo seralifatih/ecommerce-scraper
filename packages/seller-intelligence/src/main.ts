@@ -462,6 +462,15 @@ async function runDiscoveryRequests(options: {
       return;
     }
 
+    if (state.discoveredSellerUrls.size >= input.maxSellers) {
+      log.info('Discovery reached maxSellers, stopping further requests.', {
+        discovered: state.discoveredSellerUrls.size,
+        maxSellers: input.maxSellers,
+        remaining: pendingRequests.length,
+      });
+      return;
+    }
+
     const request = pendingRequests.shift();
 
     if (!request) {
@@ -527,7 +536,10 @@ async function runDiscoveryRequests(options: {
           addSellerCandidate(state, input, sellerLink);
         }
 
-        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
+        // See N11 cap above: drilling into product pages is expensive; cap
+        // it so a single platform can't burn the discovery budget.
+        const PRODUCT_DRILL_CAP = Math.min(input.maxSellers, 6);
+        const productLinks = collectProductLinks($, currentUrl, platform, PRODUCT_DRILL_CAP);
 
         for (const productLink of productLinks) {
           if (!addDiscoveredProduct(state, productLink)) {
@@ -571,7 +583,12 @@ async function runDiscoveryRequests(options: {
           addSellerCandidate(state, input, sellerLink);
         }
 
-        const productLinks = collectProductLinks($, currentUrl, platform, input.maxSellers * 2);
+        // Each N11 product page takes ~13s in Playwright. Cap how many we drill
+        // into so the discovery phase finishes inside the deadline. The
+        // short-circuit at the top of the loop will stop sooner if maxSellers
+        // is reached first.
+        const PRODUCT_DRILL_CAP = Math.min(input.maxSellers, 6);
+        const productLinks = collectProductLinks($, currentUrl, platform, PRODUCT_DRILL_CAP);
 
         for (const productLink of productLinks) {
           if (!addDiscoveredProduct(state, productLink)) {
