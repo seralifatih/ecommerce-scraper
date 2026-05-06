@@ -10,6 +10,9 @@
     "generatedBy": "codex"
   },
   "buildTag": "latest",
+  "defaultRunOptions": {
+    "timeoutSecs": 900
+  },
   "dockerfile": "../../../Dockerfile.apify-monorepo",
   "dockerContextDir": "../../..",
   "input": "./input_schema.json",

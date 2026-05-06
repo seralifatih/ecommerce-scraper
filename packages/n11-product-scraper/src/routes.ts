@@ -137,7 +137,7 @@ async function handleListingPage(
     await context.addRequests(detailRequests);
   }
 
-  if (parseResult.nextPageUrl && shouldContinueCrawling(dependencies.input, dependencies.state)) {
+  if (parseResult.nextPageUrl && dependencies.state.enqueuedProductUrls.size < dependencies.input.maxProducts) {
     const requestLabel = context.request.label === RequestLabel.CATEGORY
       ? RequestLabel.CATEGORY
       : RequestLabel.SEARCH;
