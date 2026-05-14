@@ -2,8 +2,8 @@
   "$schema": "https://apify.com/schemas/v1/actor.ide.json",
   "actorSpecification": 1,
   "name": "review-aggregator",
-  "title": "Turkish E-Commerce Review Aggregator - Trendyol, Hepsiburada, N11 Reviews",
-  "description": "Extract Turkish marketplace product reviews from Trendyol, Hepsiburada, and N11 into one normalized schema with built-in sentiment tagging.",
+  "title": "N11 Review Scraper - Turkish Marketplace Reviews",
+  "description": "Extract product reviews from N11 (Turkey's third-largest marketplace) into a normalized schema with built-in Turkish sentiment tagging.",
   "version": "1.0",
   "meta": {
     "templateId": "ts-crawlee-playwright-chrome",

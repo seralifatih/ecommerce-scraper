@@ -11,11 +11,8 @@ import {
   RateLimiter,
   shouldRetry,
 } from '@workspace/shared';
-import type { Platform } from '@workspace/shared';
 
-import { scrapeReviews as scrapeHepsiburadaReviews } from './platforms/hepsiburada.js';
 import { scrapeReviews as scrapeN11Reviews } from './platforms/n11.js';
-import { scrapeReviews as scrapeTrendyolReviews } from './platforms/trendyol.js';
 import {
   SEARCH_RESULTS_PER_PLATFORM,
   actorInputSchema,
@@ -130,7 +127,7 @@ async function discoverProductUrlsForQuery(options: {
         waitUntil: 'domcontentloaded',
         timeout: 120_000,
       });
-      await page.waitForTimeout(platform === 'hepsiburada' ? 10_000 : platform === 'n11' ? 8_000 : 5_000);
+      await page.waitForTimeout(8_000);
 
       const pageText = await getPageText(page);
       ensurePublicPage(pageText, searchUrl);
@@ -175,8 +172,8 @@ function addSeedProductUrl(
 ): void {
   const platform = detectPlatformFromUrl(rawUrl);
 
-  if (!platform) {
-    log.warning('Skipping unsupported product URL.', { rawUrl });
+  if (platform !== 'n11') {
+    log.warning('Skipping unsupported product URL. Only N11 URLs are accepted.', { rawUrl });
     return;
   }
 
@@ -191,9 +188,7 @@ function addSeedProductUrl(
   state.discoveredProductUrls.add(normalizeProductUrl(rawUrl));
 }
 
-const scraperByPlatform: Record<Platform, PlatformScraper> = {
-  trendyol: scrapeTrendyolReviews,
-  hepsiburada: scrapeHepsiburadaReviews,
+const scraperByPlatform: Record<'n11', PlatformScraper> = {
   n11: scrapeN11Reviews,
 };
 
@@ -313,8 +308,8 @@ try {
     for (const productUrl of state.discoveredProductUrls) {
       const platform = detectPlatformFromUrl(productUrl);
 
-      if (!platform) {
-        log.warning('Skipping URL because the platform could not be detected.', { productUrl });
+      if (platform !== 'n11') {
+        log.warning('Skipping URL because the platform is not supported.', { productUrl });
         continue;
       }
 
@@ -331,7 +326,7 @@ try {
             waitUntil: 'domcontentloaded',
             timeout: 120_000,
           });
-          await page.waitForTimeout(platform === 'hepsiburada' ? 7_000 : platform === 'n11' ? 8_000 : 5_000);
+          await page.waitForTimeout(8_000);
 
           const pageText = await getPageText(page);
           ensurePublicPage(pageText, productUrl);

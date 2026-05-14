@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Platform, RateLimiter } from '@workspace/shared';
 
 export const DATA_VERSION = 'product-review/v1';
-export const DEFAULT_PLATFORMS = ['trendyol', 'hepsiburada', 'n11'] as const;
+export const DEFAULT_PLATFORMS = ['n11'] as const;
 export const SEARCH_RESULTS_PER_PLATFORM = 5;
 export const MAX_CLIENT_SORT_BUFFER = 500;
 
@@ -18,42 +18,6 @@ const proxyConfigSchema = z.object({
   apifyProxyCountry: z.string().trim().min(2).max(2).optional(),
   proxyUrls: z.array(z.string().trim().min(1)).optional(),
 }).passthrough();
-
-function isSupportedProductUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.replace(/^www\./i, '').toLowerCase();
-
-    return hostname.endsWith('trendyol.com')
-      || hostname.endsWith('hepsiburada.com')
-      || hostname.endsWith('n11.com');
-  } catch {
-    return false;
-  }
-}
-
-function detectPlatformFromProductUrl(value: string): Platform | null {
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.replace(/^www\./i, '').toLowerCase();
-
-    if (hostname.endsWith('trendyol.com')) {
-      return 'trendyol';
-    }
-
-    if (hostname.endsWith('hepsiburada.com')) {
-      return 'hepsiburada';
-    }
-
-    if (hostname.endsWith('n11.com')) {
-      return 'n11';
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 function positiveIntegerField(fieldName: string, defaultValue: number, maximum?: number) {
   return z.coerce.number().default(defaultValue).superRefine((value, context) => {
@@ -74,11 +38,7 @@ function positiveIntegerField(fieldName: string, defaultValue: number, maximum?:
 }
 
 export const actorInputSchema = z.object({
-  productUrls: z.array(z.string().url().refine(isSupportedProductUrl, {
-    message: 'URL must belong to Trendyol, Hepsiburada, or n11.',
-  })).default([
-    'https://www.trendyol.com/spigen/ciel-by-cyrill-iphone-15-pro-kilif-cecile-flower-garden-acs06760-p-758714142',
-    'https://www.hepsiburada.com/spigen-20w-usb-c-mini-hizli-sarj-aleti-sarj-isisini-dusurur-gan-destekli-akim-korumali-guc-adaptoru-iphone-android-ipad-type-c-white-ach02071-p-HBCV000008SWTT',
+  productUrls: z.array(z.string().url()).default([
     'https://www.n11.com/urun/logitech-mk270-kablosuz-usb-turkce-q-klavye-mouse-seti-61465',
   ]),
   searchQuery: z.string().trim().min(1).optional(),
@@ -102,27 +62,6 @@ export const actorInputSchema = z.object({
       message: 'Platforms must not contain duplicate values.',
       path: ['platforms'],
     });
-  }
-
-  for (const productUrl of value.productUrls) {
-    const platform = detectPlatformFromProductUrl(productUrl);
-
-    if (!platform) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Product URLs must belong to Trendyol, Hepsiburada, or n11.',
-        path: ['productUrls'],
-      });
-      continue;
-    }
-
-    if (!value.platforms.includes(platform)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Product URL ${productUrl} belongs to ${platform}, but that platform is not enabled in platforms.`,
-        path: ['productUrls'],
-      });
-    }
   }
 });
 
@@ -159,18 +98,14 @@ export const runSummarySchema = z.object({
   totalRecords: z.number().int().nonnegative(),
   successRate: z.number().min(0).max(1),
   platformBreakdown: z.object({
-    trendyol: z.number().int().nonnegative(),
-    hepsiburada: z.number().int().nonnegative(),
     n11: z.number().int().nonnegative(),
   }),
   durationSeconds: z.number().nonnegative(),
   errors: z.number().int().nonnegative(),
 });
 
-export function createEmptyPlatformBreakdown(): Record<Platform, number> {
+export function createEmptyPlatformBreakdown(): Record<'n11', number> {
   return {
-    trendyol: 0,
-    hepsiburada: 0,
     n11: 0,
   };
 }

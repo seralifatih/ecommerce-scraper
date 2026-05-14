@@ -14,14 +14,6 @@ export function detectPlatformFromUrl(rawUrl: string): Platform | null {
     const url = new URL(rawUrl);
     const hostname = url.hostname.replace(/^www\./i, '').toLowerCase();
 
-    if (hostname.endsWith('trendyol.com')) {
-      return 'trendyol';
-    }
-
-    if (hostname.endsWith('hepsiburada.com')) {
-      return 'hepsiburada';
-    }
-
     if (hostname.endsWith('n11.com')) {
       return 'n11';
     }
@@ -51,49 +43,19 @@ export function toAbsoluteUrl(baseUrl: string, href: string | undefined | null):
   }
 }
 
-export function buildSearchUrl(platform: Platform, query: string): string {
-  const url = new URL(
-    platform === 'trendyol'
-      ? 'https://www.trendyol.com/sr'
-      : platform === 'hepsiburada'
-        ? 'https://www.hepsiburada.com/ara'
-        : 'https://www.n11.com/arama',
-  );
+export function buildSearchUrl(_platform: Platform, query: string): string {
+  const url = new URL('https://www.n11.com/arama');
 
   url.searchParams.set('q', query);
   return url.toString();
 }
 
-export function isProductUrl(candidateUrl: string, platform: Platform): boolean {
+export function isProductUrl(candidateUrl: string, _platform: Platform): boolean {
   try {
     const url = new URL(candidateUrl);
-
-    if (platform === 'trendyol') {
-      return /-p-\d+$/i.test(url.pathname);
-    }
-
-    if (platform === 'hepsiburada') {
-      return /-p-[a-z0-9]+$/i.test(url.pathname);
-    }
-
     return url.pathname.startsWith('/urun/');
   } catch {
     return false;
-  }
-}
-
-export function resolveHepsiburadaTrackingUrl(candidateUrl: string): string | null {
-  try {
-    const url = new URL(candidateUrl);
-
-    if (!url.hostname.includes('adservice.hepsiburada.com')) {
-      return candidateUrl;
-    }
-
-    const redirectUrl = url.searchParams.get('redirect');
-    return redirectUrl ? redirectUrl : null;
-  } catch {
-    return null;
   }
 }
 
@@ -108,7 +70,7 @@ function looksLikeProductCard(text: string): boolean {
     parseTurkishPrice(normalizedText);
     return true;
   } catch {
-    return /(?:\bTL\b|\u20ba|TRY)/i.test(normalizedText);
+    return /(?:\bTL\b|₺|TRY)/i.test(normalizedText);
   }
 }
 
@@ -128,11 +90,8 @@ export function collectSearchProductUrls(
 
     const href = $(element as any).attr('href');
     const absoluteUrl = toAbsoluteUrl(baseUrl, href);
-    const resolvedUrl = absoluteUrl && platform === 'hepsiburada'
-      ? resolveHepsiburadaTrackingUrl(absoluteUrl)
-      : absoluteUrl;
 
-    if (!resolvedUrl || !isProductUrl(resolvedUrl, platform)) {
+    if (!absoluteUrl || !isProductUrl(absoluteUrl, platform)) {
       return;
     }
 
@@ -147,7 +106,7 @@ export function collectSearchProductUrls(
       return;
     }
 
-    links.add(normalizeProductUrl(resolvedUrl));
+    links.add(normalizeProductUrl(absoluteUrl));
   });
 
   return [...links];
@@ -219,10 +178,10 @@ export function titleFromDocumentTitle(title: string, suffixPatterns: RegExp[]):
 
 export function normalizeForMatching(text: string): string {
   return turkishLowerCase(cleanText(text))
-    .replace(/\u015f/g, 's')
-    .replace(/\u011f/g, 'g')
-    .replace(/\u00fc/g, 'u')
-    .replace(/\u00f6/g, 'o')
-    .replace(/\u0131/g, 'i')
-    .replace(/\u00e7/g, 'c');
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ı/g, 'i')
+    .replace(/ç/g, 'c');
 }
