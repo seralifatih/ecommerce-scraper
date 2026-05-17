@@ -7,11 +7,12 @@ ENV ACTOR_PATH_IN_DOCKER_CONTEXT=${ACTOR_PATH_IN_DOCKER_CONTEXT}
 
 USER root
 WORKDIR /app
-RUN mkdir -p /app && chown -R myuser:myuser /app
+RUN mkdir -p /app /pw-browsers && chown -R myuser:myuser /app /pw-browsers
 
 COPY --chown=myuser:myuser . ./
 
 USER myuser
+ENV PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
 RUN test -n "$ACTOR_PATH_IN_DOCKER_CONTEXT" \
     && npm set progress=false \
     && npm ci --include=dev --no-audit --no-fund \
