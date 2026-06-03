@@ -691,6 +691,14 @@ try {
   const discoveryDeadline = Number.isFinite(overallDeadline)
     ? Math.min(overallDeadline, startedAt + Math.floor((overallDeadline - startedAt) * 0.6))
     : overallDeadline;
+
+  const needsBrowser = discoveryRequests.length > 0 || state.discoveredSellerUrls.size > 0;
+
+  if (!needsBrowser) {
+    log.warning('No seller URLs, search query, or category provided — nothing to scrape.');
+    finalStatusMessage = 'Completed after scraping 0 seller profiles.';
+    await Actor.setStatusMessage(finalStatusMessage, { isStatusMessageTerminal: true });
+  } else {
   const { browser, context } = await createBrowserContext(proxyConfiguration);
 
   try {
@@ -898,6 +906,7 @@ try {
     await context.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
+  } // end else (needsBrowser)
 } catch (error) {
   exitCode = 1;
   const resolvedError = toError(error);

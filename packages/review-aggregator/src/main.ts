@@ -224,6 +224,18 @@ try {
   const input = actorInputSchema.parse(rawInput);
   const proxyConfiguration = await getProxyConfig(input.proxyConfig);
   const rateLimiter = new RateLimiter(2_000, 3);
+
+  for (const productUrl of input.productUrls) {
+    addSeedProductUrl(input, state, productUrl);
+  }
+
+  const needsBrowser = state.discoveredProductUrls.size > 0 || Boolean(input.searchQuery);
+
+  if (!needsBrowser) {
+    log.warning('No product URLs and no search query provided — nothing to scrape.');
+    finalStatusMessage = 'Completed after collecting 0 reviews.';
+    await Actor.setStatusMessage(finalStatusMessage, { isStatusMessageTerminal: true });
+  } else {
   const { browser, context } = await createBrowserContext(proxyConfiguration);
 
   try {
@@ -241,10 +253,6 @@ try {
         pushedReviewCount: state.pushedReviewKeys.size,
       });
     });
-
-    for (const productUrl of input.productUrls) {
-      addSeedProductUrl(input, state, productUrl);
-    }
 
     const discoveredFromSearch = await discoverProductUrlsForQuery({
       context,
@@ -374,6 +382,7 @@ try {
     await context.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
   }
+  } // end else (needsBrowser)
 } catch (error) {
   exitCode = 1;
   const resolvedError = toError(error);
