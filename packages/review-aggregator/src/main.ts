@@ -202,6 +202,11 @@ await Actor.init({
     }),
 });
 
+log.info(
+  'Running N11 review scraper. Note: Trendyol and Hepsiburada were removed due to '
+  + 'anti-bot protection — see separate actors for those platforms.',
+);
+
 let exitCode = 0;
 let finalStatusMessage = 'Review aggregation run did not start.';
 const startedAt = Date.now();
