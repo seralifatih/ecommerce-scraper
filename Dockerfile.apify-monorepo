@@ -16,7 +16,11 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
 RUN test -n "$ACTOR_PATH_IN_DOCKER_CONTEXT" \
     && npm set progress=false \
     && npm ci --include=dev --no-audit --no-fund \
-    && npx playwright install chromium chromium-headless-shell \
+    && for attempt in 1 2 3; do \
+         timeout 300 npx playwright install chromium chromium-headless-shell && break; \
+         echo "playwright install attempt $attempt timed out or failed, retrying..." >&2; \
+         if [ "$attempt" = 3 ]; then exit 1; fi; \
+       done \
     && node ./scripts/build-selected-actor.mjs
 
 CMD ["node", "./scripts/run-selected-actor.mjs"]
