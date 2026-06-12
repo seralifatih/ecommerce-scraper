@@ -114,8 +114,8 @@ try {
     maxRequestsPerCrawl: Math.max(startRequests.length, input.maxProducts * 4),
     maxRequestRetries: 3,
     maxConcurrency: 5,
-    navigationTimeoutSecs: 30,
-    requestHandlerTimeoutSecs: 30,
+    navigationTimeoutSecs: 90,
+    requestHandlerTimeoutSecs: 60,
     useSessionPool: true,
     persistCookiesPerSession: true,
     preNavigationHooks: [
